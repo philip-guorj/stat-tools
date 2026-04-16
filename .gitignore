@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Data
+data/*.csv
+data/*.xlsx
+data/*.parquet
+temp_plots/_global_data_cache.parquet
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Render
+render/
+
+# Build artifacts
+build/
+dist/
+StatTools_Package/
+output/
+temp_plots/
+
+# Debug/test files
+_exe_err.txt
+_exe_out.txt
+_stattools_release_err.txt
+_stattools_release_out.txt
+stderr2.txt
+stdout2.txt
+build_log.txt
+version_info.txt
+test3_out.txt
