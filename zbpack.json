@@ -1,0 +1,6 @@
+{
+  "python": {
+    "version": "3.11",
+    "start_command": "streamlit run 数据管理.py --server.port=${PORT:-8501} --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"
+  }
+}
