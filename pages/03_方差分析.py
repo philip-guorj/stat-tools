@@ -16,7 +16,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from utils.data_manager import get_data_manager
-from utils.styles import get_global_css
+from utils.styles import inject_css
 
 
 # ========== 延迟导入statsmodels（加快启动速度）==========
@@ -228,7 +228,7 @@ def _render_met_cld(geno_names_sorted, emmeans_geno, compare_results, method_nam
 
 
 def render_anova():
-    st.markdown(get_global_css(), unsafe_allow_html=True)
+    inject_css()
     st.markdown('<div class="section-header">📊 方差分析 (ANOVA)</div>', unsafe_allow_html=True)
     
     # 功能简介下拉菜单

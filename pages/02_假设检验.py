@@ -12,10 +12,10 @@ import plotly.graph_objects as go
 import plotly.express as px
 
 from utils.data_manager import get_data_manager
-from utils.styles import get_global_css
+from utils.styles import inject_css
 
 def render_hypothesis_test():
-    st.markdown(get_global_css(), unsafe_allow_html=True)
+    inject_css()
     st.markdown('<div class="section-header">🔬 假设检验</div>', unsafe_allow_html=True)
     
     # 功能简介下拉菜单

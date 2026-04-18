@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from utils.data_manager import get_data_manager
-from utils.styles import get_global_css
+from utils.styles import inject_css
 
 
 def create_text_input_with_file_import(
@@ -127,7 +127,7 @@ def create_text_input_with_file_import(
 
 
 def render_experimental_design():
-    st.markdown(get_global_css(), unsafe_allow_html=True)
+    inject_css()
     st.markdown('<div class="section-header">🌾 试验设计</div>', unsafe_allow_html=True)
     
     # 功能简介下拉菜单

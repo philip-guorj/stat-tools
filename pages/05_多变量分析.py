@@ -7,24 +7,64 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
 import pandas as pd
 import numpy as np
-from scipy import stats
-from scipy.cluster.hierarchy import dendrogram, linkage
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import warnings
 warnings.filterwarnings('ignore')
 
 from utils.data_manager import get_data_manager
-from utils.styles import get_global_css
+from utils.styles import inject_css
+
+
+# ========== 延迟导入重量级计算库 ==========
+_sklearn_cache = {}
+_scipy_hier_cache = None
+
+def _get_pca():
+    if 'pca' not in _sklearn_cache:
+        from sklearn.decomposition import PCA
+        from sklearn.preprocessing import StandardScaler
+        _sklearn_cache['pca'] = PCA
+        _sklearn_cache['scaler'] = StandardScaler
+    return _sklearn_cache['pca'], _sklearn_cache['scaler']
+
+def _get_kmeans():
+    if 'kmeans' not in _sklearn_cache:
+        from sklearn.cluster import KMeans
+        from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
+        _sklearn_cache['kmeans'] = KMeans
+        _sklearn_cache['silhouette'] = silhouette_score
+        _sklearn_cache['calinski'] = calinski_harabasz_score
+        _sklearn_cache['davies'] = davies_bouldin_score
+    return (_sklearn_cache['kmeans'], _sklearn_cache['silhouette'],
+            _sklearn_cache['calinski'], _sklearn_cache['davies'])
+
+def _get_hierarchy():
+    global _scipy_hier_cache
+    if _scipy_hier_cache is None:
+        from scipy.cluster.hierarchy import dendrogram, linkage
+        _scipy_hier_cache = (dendrogram, linkage)
+    return _scipy_hier_cache
+
+def _get_stats():
+    from scipy import stats
+    return stats
+
+def _get_px():
+    import plotly.express as px
+    return px
+
+def _get_go():
+    import plotly.graph_objects as go
+    return go
+
+def _get_subplots():
+    from plotly.subplots import make_subplots
+    return make_subplots
+
+
 
 
 def render_multivariate():
-    st.markdown(get_global_css(), unsafe_allow_html=True)
+    inject_css()
     st.markdown('<div class="section-header">🎯 多变量分析</div>', unsafe_allow_html=True)
     
     # 功能简介下拉菜单
@@ -139,13 +179,15 @@ def pca_analysis(df):
         return
     
     if standardize:
-        scaler = StandardScaler()
+        _, ScalerCls = _get_pca()
+        scaler = ScalerCls()
         X_scaled = scaler.fit_transform(clean_df)
     else:
         X_scaled = clean_df.values
     
     # PCA拟合
-    pca = PCA(n_components=n_components)
+    PCA_cls, _ = _get_pca()
+    pca = PCA_cls(n_components=n_components)
     scores = pca.fit_transform(X_scaled)
     loadings = pca.components_.T * np.sqrt(pca.explained_variance_)
     
@@ -173,7 +215,8 @@ def pca_analysis(df):
     st.dataframe(var_table.set_index('主成分'))
     
     # 碎石图
-    fig_scree = make_subplots(specs=[[{"secondary_y": True}]])
+    fig_scree = _get_subplots()(specs=[[{"secondary_y": True}]])
+    go = _get_go()
     fig_scree.add_trace(go.Bar(
         x=[f'PC{i+1}' for i in range(n_components)],
         y=pca.explained_variance_,
@@ -186,7 +229,7 @@ def pca_analysis(df):
         mode='lines+markers',
         name='累积%',
         line=dict(color='red', width=2)
-    ))
+    ), secondary_y=True)
     fig_scree.update_layout(
         title='碎石图 (Scree Plot)',
         xaxis_title='主成分', yaxis_title='特征值',
@@ -309,8 +352,12 @@ def kmeans_analysis(df):
     
     clean_df = df[selected_vars].dropna()
     
+    KMeans, silhouette_score, calinski_harabasz_score, davies_bouldin_score = _get_kmeans()
+    go = _get_go()
+    
     if standardize:
-        scaler = StandardScaler()
+        _, ScalerCls = _get_pca()
+        scaler = ScalerCls()
         X = scaler.fit_transform(clean_df)
     else:
         X = clean_df.values
@@ -356,7 +403,8 @@ def kmeans_analysis(df):
         
         if viz_type == "散点图(2D降维)":
             # 用PCA降到2维显示
-            pca_vis = PCA(n_components=2)
+            PCA_cls, _ = _get_pca()
+            pca_vis = PCA_cls(n_components=2)
             X_2d = pca_vis.fit_transform(X)
             
             fig_km = go.Figure()
@@ -417,6 +465,7 @@ def kmeans_analysis(df):
             inertias.append(km_temp.inertia_)
             sil_scores.append(silhouette_score(X, km_temp.labels_))
         
+        make_subplots = _get_subplots()
         fig_elbow = make_subplots(specs=[[{"secondary_y": True}]])
         fig_elbow.add_trace(go.Scatter(x=list(K_range), y=inertias,
                                        mode='lines+markers', name='惯性(SSE)',
@@ -443,16 +492,19 @@ def hierarchical_analysis(df):
         return
     
     clean_df = df[selected_vars].dropna()
-    scaler = StandardScaler()
+    _, ScalerCls = _get_pca()
+    scaler = ScalerCls()
     X = scaler.fit_transform(clean_df)
     
     # 计算距离矩阵并执行层次聚类
+    _, linkage = _get_hierarchy()
     linked = linkage(X, method=method, metric=metric)
     
     # 树状图
+    go = _get_go()
     fig_dendro = go.Figure()
     
-    from scipy.cluster.hierarchy import dendrogram as scipy_dendrogram
+    scipy_dendrogram, _ = _get_hierarchy()
     
     # Plotly树状图需要特殊处理
     st.markdown("#### 谱系图 (Dendrogram)")
@@ -499,6 +551,8 @@ def correlation_analysis(df):
     if len(selected_vars) < 2:
         return
     
+    _stats = _get_stats()
+    
     # 相关系数矩阵
     corr_matrix = df[selected_vars].corr(method=corr_method)
     
@@ -511,11 +565,11 @@ def correlation_analysis(df):
         for j, v2 in enumerate(selected_vars):
             if i != j:
                 if corr_method == "pearson":
-                    _, p = stats.pearsonr(df[v1].dropna(), df[v2].dropna())
+                    _, p = _stats.pearsonr(df[v1].dropna(), df[v2].dropna())
                 elif corr_method == "spearman":
-                    _, p = stats.spearmanr(df[v1].dropna(), df[v2].dropna())
+                    _, p = _stats.spearmanr(df[v1].dropna(), df[v2].dropna())
                 else:
-                    _, p = stats.kendalltau(df[v1].dropna(), df[v2].dropna())
+                    _, p = _stats.kendalltau(df[v1].dropna(), df[v2].dropna())
                 pval_matrix.loc[v1, v2] = p
                 pval_matrix.loc[v2, v1] = p
     
@@ -536,6 +590,7 @@ def correlation_analysis(df):
                     showarrow=False
                 ))
         
+        go = _get_go()
         fig_corr = go.Figure(data=go.Heatmap(
             z=corr_matrix.values, x=selected_vars, y=selected_vars,
             colorscale='RdBu_r', zmid=0,

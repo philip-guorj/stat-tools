@@ -3,7 +3,7 @@
 
 import streamlit as st
 from utils.data_manager import render_data_manager_expanded
-from utils.styles import get_global_css
+from utils.styles import inject_css
 
 st.set_page_config(
     page_title="StatTools - 田间试验统计分析",
@@ -12,14 +12,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 注入全局CSS样式
-st.markdown(get_global_css(), unsafe_allow_html=True)
+# 注入全局CSS样式（走缓存，不重复生成）
+inject_css()
 
 # 页面标题
 st.markdown('<div class="main-header">StatTools 田间试验统计分析平台</div>', unsafe_allow_html=True)
 
-# 系统功能概述
-with st.expander("📖 系统功能概述与使用指南", expanded=True):
+# 系统功能概述（默认折叠，减少首屏干扰）
+with st.expander("📖 系统功能概述与使用指南", expanded=False):
     st.markdown("""
     ### 平台简介
     

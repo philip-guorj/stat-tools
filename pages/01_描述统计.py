@@ -3,18 +3,29 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from scipy import stats
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.data_manager import get_data_manager
-from utils.styles import get_global_css
+from utils.styles import inject_css
+
+# 延迟导入：plotly 和 scipy 体积较大，按需加载
+def _get_px():
+    import plotly.express as px
+    return px
+
+def _get_go():
+    import plotly.graph_objects as go
+    return go
+
+def _get_stats():
+    from scipy import stats
+    return stats
+
 
 def render_descriptive_stats():
-    st.markdown(get_global_css(), unsafe_allow_html=True)
+    inject_css()
     st.markdown('<div class="section-header">📈 描述统计分析</div>', unsafe_allow_html=True)
     
     # 功能简介下拉菜单
@@ -64,6 +75,8 @@ def render_descriptive_stats():
     # 基础描述统计量
     st.markdown("---")
     st.markdown("### 📊 描述统计量")
+
+    _stats = _get_stats()
     
     desc_df = df[selected_cols].describe().T
     # 添加额外统计量
@@ -72,16 +85,16 @@ def render_descriptive_stats():
         data = df[col].dropna()
         extra_stats.append({
             '变量': col,
-            '偏度': stats.skew(data),
-            '峰度': stats.kurtosis(data),
+            '偏度': _stats.skew(data),
+            '峰度': _stats.kurtosis(data),
             '变异系数(CV%)': (data.std() / data.mean() * 100) if data.mean() != 0 else np.nan,
             '中位数': data.median(),
             '众数': mode(data),  # type: ignore
             '极差': data.max() - data.min(),
             '四分位距(IQR)': data.quantile(0.75) - data.quantile(0.25),
-            '标准误(SE)': stats.sem(data),
-            '置信区间(95%下限)': data.mean() - 1.96 * stats.sem(data),
-            '置信区间(95%上限)': data.mean() + 1.96 * stats.sem(data),
+            '标准误(SE)': _stats.sem(data),
+            '置信区间(95%下限)': data.mean() - 1.96 * _stats.sem(data),
+            '置信区间(95%上限)': data.mean() + 1.96 * _stats.sem(data),
         })
     
     extra_df = pd.DataFrame(extra_stats).set_index('变量')
@@ -115,6 +128,7 @@ def render_descriptive_stats():
         
         # 分组箱线图
         st.markdown("#### 分组箱线图")
+        px = _get_px()
         fig_box = px.box(
             df.melt(id_vars=[group_col], value_vars=selected_cols, 
                     var_name='变量', value_name='值'),
@@ -136,6 +150,9 @@ def render_descriptive_stats():
                 key=f"viz_{col}"
             )
     
+    px = _get_px()
+    go = _get_go()
+    _stats = _get_stats()
     for col in selected_cols:
         data = df[col].dropna()
         chart_type = st.session_state.get(f"viz_{col}", "直方图")  # type: ignore
@@ -158,7 +175,7 @@ def render_descriptive_stats():
         
         with c_qq:
             # QQ图（正态性检验可视化）
-            qq_data = stats.probplot(data, dist="norm")
+            qq_data = _stats.probplot(data, dist="norm")
             fig_qq = go.Figure()
             fig_qq.add_trace(go.Scatter(
                 x=qq_data[0][1], y=qq_data[1],
@@ -180,7 +197,7 @@ def render_descriptive_stats():
         st.markdown("### 🔗 变量相关性分析")
         
         corr_matrix = df[selected_cols].corr()
-        
+        px = _get_px()
         fig_corr = px.imshow(
             corr_matrix,
             text_auto='.2f',

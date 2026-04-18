@@ -16,7 +16,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from utils.data_manager import get_data_manager
-from utils.styles import get_global_css
+from utils.styles import inject_css
 
 # 全局缓存延迟导入的模块
 _sm_cache = None
@@ -40,7 +40,7 @@ def _get_vif():
 
 
 def render_regression():
-    st.markdown(get_global_css(), unsafe_allow_html=True)
+    inject_css()
     st.markdown('<div class="section-header">📉 回归分析</div>', unsafe_allow_html=True)
     
     # 功能简介下拉菜单
