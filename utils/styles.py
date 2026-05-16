@@ -343,7 +343,6 @@ def inject_css():
 
 def inject_upload_i18n():
     """将 file_uploader 内置英文提示替换为中文"""
-    import streamlit.components.v1 as components
     js = """
 <script>
 (function(){
@@ -351,13 +350,11 @@ def inject_upload_i18n():
   var replaced = new WeakSet();
   function walk(el) {
     if (el.nodeType !== 1 || replaced.has(el)) return;
-    // 检查元素内是否包含英文提示文本
     var text = el.innerText || '';
     if (text.indexOf('Drag and drop') !== -1 || text.indexOf('Browse files') !== -1 ||
         text.indexOf('drag and drop') !== -1 || text.indexOf('browse files') !== -1 ||
         (text.indexOf('Limit') !== -1 && text.indexOf('per file') !== -1) ||
         text.indexOf('file here') !== -1) {
-      // 检查子元素——只处理没有子元素（叶节点）或纯文本容器
       var hasBlockChild = false;
       for (var i = 0; i < el.children.length; i++) {
         if (el.children[i].children.length > 0) { hasBlockChild = true; break; }
@@ -373,7 +370,6 @@ def inject_upload_i18n():
         }
       }
     }
-    // 递归子元素
     for (var j = 0; j < el.children.length; j++) {
       walk(el.children[j]);
     }
@@ -389,12 +385,11 @@ def inject_upload_i18n():
 })();
 </script>
 """
-    components.html(js, height=0)
+    st.markdown(js, unsafe_allow_html=True)
 
 
 def inject_nav_separator():
     """在侧边栏导航的「用户中心」前插入一条分割线（仅一次，MutationObserver 稳定）"""
-    import streamlit.components.v1 as components
     js = """
 <script>
 (function(){
@@ -428,7 +423,7 @@ def inject_nav_separator():
 })();
 </script>
 """
-    components.html(js, height=0)
+    st.markdown(js, unsafe_allow_html=True)
 
 
 
