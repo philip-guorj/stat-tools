@@ -10,7 +10,7 @@ venv/
 .streamlit/secrets.toml
 
 # Data
-data/*.csv
+# data/*.csv  # 注释掉：样本数据需要随仓库发布
 data/*.xlsx
 data/*.parquet
 temp_plots/_global_data_cache.parquet

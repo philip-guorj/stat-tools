@@ -15,6 +15,38 @@ from utils.styles import inject_css, inject_upload_i18n, inject_nav_separator
 from billing.billing import get_user_quota
 from billing.auth import get_current_user
 
+# ---- 启动时确保存在管理员账号（HF Spaces 首次部署自动初始化） ----
+def _ensure_admin():
+    """若没有任何管理员账号，自动创建一个（凭据优先读 st.secrets，否则用默认值）"""
+    try:
+        from billing.database import fetch_one, execute_query
+        import secrets, hashlib
+
+        admin = fetch_one("SELECT id FROM users WHERE role = 'admin'")
+        if admin is not None:
+            return
+
+        # 从 st.secrets 读取凭据，或用默认值
+        try:
+            phone = st.secrets["admin"]["phone"]
+            password = st.secrets["admin"]["password"]
+        except Exception:
+            phone = "13800138000"
+            password = "admin123"
+
+        salt = secrets.token_hex(16)
+        pw_hash = hashlib.sha256((password + salt).encode()).hexdigest()
+        execute_query(
+            "INSERT INTO users (phone, password_hash, salt, role, free_quota, paid_quota) "
+            "VALUES (?, ?, ?, 'admin', 9999, 9999)",
+            (phone, pw_hash, salt)
+        )
+        print(f"[INIT] 已自动创建管理员账号：手机号={phone} 密码={password}")
+    except Exception as e:
+        print(f"[INIT] 管理员自动初始化失败：{e}")
+
+_ensure_admin()
+
 
 # ---- 登录页面函数（未登录时显示） ----
 def _login_page():
