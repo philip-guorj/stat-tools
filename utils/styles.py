@@ -2,6 +2,7 @@
 # 所有页面统一引用，确保样式一致性
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 @st.cache_resource
@@ -306,7 +307,7 @@ hr {
 }
 
 /* ========== 区块间距优化 ========== */
-.streamlit-container > div > div > div > div {
+.streamlit-container > div > div > div {
     gap: 0.3rem;
 }
 
@@ -362,10 +363,10 @@ def inject_upload_i18n():
       if (!hasBlockChild && el.children.length <= 2) {
         var t = (el.innerText || '').trim();
         if (t.indexOf('Limit') !== -1 && t.indexOf('per file') !== -1) {
-          el.innerText = '单文件上限 200MB · CSV、XLSX、XLS';
+          el.innerText = '单文件上限 200MB \\u00b7 CSV\\u3001XLSX\\u3001XLS';
           replaced.add(el);
         } else if (t.indexOf('drag') !== -1 || t.indexOf('Drag') !== -1 || t.indexOf('Browse') !== -1 || t.indexOf('file here') !== -1) {
-          el.innerText = '拖拽文件到此处，或点击选择文件';
+          el.innerText = '\\u62D6\\u7D22\\u6587\\u4EF6\\u5230\\u6B64\\u5904\\uFF0C\\u6216\\u70B9\\u51FB\\u9009\\u62E9\\u6587\\u4EF6';
           replaced.add(el);
         }
       }
@@ -385,11 +386,11 @@ def inject_upload_i18n():
 })();
 </script>
 """
-    st.markdown(js, unsafe_allow_html=True)
+    components.html(js, height=0)
 
 
 def inject_nav_separator():
-    """在侧边栏导航的「用户中心」前插入一条分割线（仅一次，MutationObserver 稳定）"""
+    """在侧边栏导航的\\u300c用户中心\\u300d前插入一条分割线（仅一次，MutationObserver 稳定）"""
     js = """
 <script>
 (function(){
@@ -397,23 +398,19 @@ def inject_nav_separator():
   function insertSeparator() {
     var links = doc.querySelectorAll('[data-testid="stSidebarNav"] a');
     if (links.length === 0) return;
-    // 找「用户中心」
     var target = null;
     for (var i = links.length - 1; i >= 0; i--) {
-      if ((links[i].innerText || '').indexOf('用户中心') !== -1) { target = links[i]; break; }
+      if ((links[i].innerText || '').indexOf('\\u7528\\u6237\\u4E2D\\u5FC3') !== -1) { target = links[i]; break; }
     }
     if (!target) return;
     var li = target.parentElement;
     if (!li) return;
-    // 已在上方插入过则跳过
     if (li.previousElementSibling && li.previousElementSibling.dataset && li.previousElementSibling.dataset.stSep) return;
-    // 创建分割线 <li>
     var sep = doc.createElement('li');
     sep.dataset.stSep = '1';
     sep.style.cssText = 'height:0;border-bottom:1px solid #cbd5e1;margin:8px 12px;list-style:none;';
     li.parentElement.insertBefore(sep, li);
   }
-  // 用 MutationObserver 替代 setInterval，更稳定
   var doc = window.parent.document;
   if (doc.readyState === 'complete') { insertSeparator(); }
   else { window.parent.addEventListener('load', insertSeparator); }
@@ -423,8 +420,4 @@ def inject_nav_separator():
 })();
 </script>
 """
-    st.markdown(js, unsafe_allow_html=True)
-
-
-
-
+    components.html(js, height=0)
