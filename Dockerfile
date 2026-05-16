@@ -25,7 +25,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制应用代码
 COPY . .
 
+# 启动脚本（自动处理 billing.db 软链接、权限初始化）
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 # Streamlit 端口（HF 会设置 PORT 环境变量，默认 8501）
 EXPOSE 8501
 
-CMD sh -c "streamlit run app.py --server.port=${PORT:-8501} --server.address=0.0.0.0"
+ENTRYPOINT ["/docker-entrypoint.sh"]
