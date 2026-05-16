@@ -25,7 +25,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制应用代码
 COPY . .
 
-# 启动脚本（自动处理 billing.db 软链接、权限初始化）
+# 持久化数据准备：billing.db 软链接到 data/ 目录（该目录运行时挂载卷，可持久化）
+# /app 目录设为全局可写（SQLite WAL 模式需在同目录写 journal 文件）
+RUN ln -sf /app/data/billing.db /app/billing.db \
+    && chmod 777 /app \
+    && mkdir -p /app/logs
+
+# 启动脚本（自动处理权限初始化）
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
