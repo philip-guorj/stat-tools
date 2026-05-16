@@ -100,7 +100,7 @@ def _render_cld_letters(tukey_obj, df_tukey):
     c1, c2 = st.columns([2, 3])
     with c1:
         st.markdown('**显著性字母标识** (不同字母 -> p<0.05):')
-        st.dataframe(df_cld.reset_index(drop=True), use_container_width=True)
+        st.dataframe(df_cld.reset_index(drop=True), width="stretch")
 
     with c2:
         fig_cld = go.Figure()
@@ -117,7 +117,7 @@ def _render_cld_letters(tukey_obj, df_tukey):
             height=max(300, len(sorted_groups)*40 + 80),
             showlegend=False, yaxis=dict(autorange='reversed')
         )
-        st.plotly_chart(fig_cld, use_container_width=True, key='met_cld')
+        st.plotly_chart(fig_cld, width="stretch", key='met_cld')
 
 
 '''

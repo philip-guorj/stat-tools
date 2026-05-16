@@ -27,10 +27,9 @@ else:
 temp_dir = tempfile.mkdtemp(prefix="StatTools_")
 
 # 复制必要文件
-for f in ["app.py", "数据管理.py"]:
-    src = os.path.join(bundle_dir, f)
-    if os.path.exists(src):
-        shutil.copy2(src, temp_dir)
+src = os.path.join(bundle_dir, "数据管理.py")
+if os.path.exists(src):
+    shutil.copy2(src, temp_dir)
 
 for d in ["pages", "utils", "modules", "data"]:
     src = os.path.join(bundle_dir, d)
@@ -52,11 +51,11 @@ import atexit
 def cleanup():
     try:
         shutil.rmtree(temp_dir, ignore_errors=True)
-    except:
+    except Exception:
         pass
 atexit.register(cleanup)
 
 # 直接用streamlit CLI
-sys.argv = ["streamlit", "run", "app.py", "--server.headless", "false"]
+sys.argv = ["streamlit", "run", "数据管理.py", "--server.headless", "false"]
 from streamlit.web.cli import main
 main()

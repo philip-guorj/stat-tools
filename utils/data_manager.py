@@ -354,7 +354,7 @@ def render_data_manager(expanded=None):
                 label_visibility="collapsed",
                 key="dm_example"
             )
-            if st.button("📥 加载示例数据", width="stretch"):
+            if st.button("📥 加载示例数据"):
                 create_example_data(dm, example_option)
                 st.success("✅ 示例数据已加载，请选择分析模块。")
         
@@ -375,7 +375,7 @@ def render_data_manager(expanded=None):
             if dm.is_loaded:
                 csv_bytes = dm.data.to_csv(index=False).encode('utf-8-sig')
                 base_name = os.path.splitext(dm.filename)[0] if dm.filename else "数据"
-                if st.button("🗑️ 清除数据", width="stretch"):
+                if st.button("🗑️ 清除数据"):
                     dm.clear_data()
                     st.rerun()
                 st.download_button(
@@ -383,7 +383,6 @@ def render_data_manager(expanded=None):
                     data=csv_bytes,
                     file_name=f"{base_name}.csv",
                     mime="text/csv",
-                    width="stretch"
                 )
     
     # 显示数据预览（如果有数据）
@@ -404,7 +403,7 @@ def render_data_manager(expanded=None):
             
             # 数据表格（在摘要下方）
             if dm.data is not None:
-                st.dataframe(dm.data, width="stretch")
+                st.dataframe(dm.data, use_container_width=True)
 
 
 def render_data_manager_expanded():

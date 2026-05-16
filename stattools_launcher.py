@@ -60,8 +60,8 @@ def suppress_noise():
     except Exception:
         pass
 
-    # 2. stderr 重定向到 devnull（安全的空设备，不会触发 closed file 错误）
-    sys.stderr = io.StringIO()
+    # 2. stderr 不重定向，保留错误信息供用户诊断
+    # sys.stderr = io.StringIO()  # 会导致启动失败时错误信息被吞掉
 
     # 3. monkey-patch click.echo / click.secho 过滤噪音
     try:
@@ -112,7 +112,7 @@ def open_browser_when_ready(port=8501, delay=3):
             try:
                 urllib.request.urlopen(url, timeout=1)
                 break
-            except:
+            except Exception:
                 time.sleep(1)
     except Exception:
         pass

@@ -89,7 +89,7 @@ def _tab_multiple_comparison(df):
             alpha = st.selectbox("α", [0.01, 0.05, 0.10], index=1)
         with g:
             chart = st.checkbox("显示CLD柱状图", value=True)
-        run = st.button("▶ 运行多重比较", type="primary", use_container_width=True, key="mc_run")
+        run = st.button("▶ 运行多重比较", type="primary", key="mc_run")
     if not run:
         return
 
@@ -186,7 +186,7 @@ def _tab_stability(df):
             s_er = st.checkbox("Eberhart-Russell", value=True)
         with f:
             s_wk = st.checkbox("Wricke生态价", value=False)
-        run = st.button("▶ 运行稳定性分析", type="primary", use_container_width=True)
+        run = st.button("▶ 运行稳定性分析", type="primary")
     if not run:
         return
 
@@ -256,7 +256,7 @@ def _tab_ck_comparison(df):
             all_g = sorted(df[gt].unique())
             ck = st.selectbox("对照品种(CK)", all_g, index=_safe_index(all_g, ['CK', '对照', '郑单958'], 0))
         env_f = st.selectbox("限定环境(可选)", ['(全部)'] + all_cat, key="ck_env")
-        run = st.button("▶ 运行对照比较", type="primary", use_container_width=True)
+        run = st.button("▶ 运行对照比较", type="primary")
     if not run:
         return
     dfw = df.copy()
@@ -314,7 +314,7 @@ def _tab_report_summary(df):
             thr = st.number_input("增产率阈值(%)", 0.0, 100.0, 5.0, 1.0)
         with g:
             stab_thr = st.number_input("稳定性阈(Shukla变异数上限)", 0.0, value=100.0, step=10.0)
-        run = st.button("▶ 生成报告", type="primary", use_container_width=True)
+        run = st.button("▶ 生成报告", type="primary")
     if not run:
         return
 
@@ -425,7 +425,7 @@ def _tab_ammi_gge(df):
             ls = st.slider("标签大小", 6, 16, 10)
         with j:
             ps = st.slider("点大小", 4, 14, 8)
-        run = st.button("▶ 运行双标图分析", type="primary", use_container_width=True, key="ammi_run")
+        run = st.button("▶ 运行双标图分析", type="primary", key="ammi_run")
     if not run:
         return
 
@@ -490,7 +490,7 @@ def _tab_trial_evaluation(df):
             show_eb = st.checkbox("品种均值误差图(QYSY)", value=False, key="ev_eb")
         with j:
             show_3p = st.checkbox("三维评价图(QYSY)", value=True, key="ev_3p")
-        run = st.button("▶ 运行评价", type="primary", use_container_width=True, key="eval_run")
+        run = st.button("▶ 运行评价", type="primary", key="eval_run")
     if not run:
         return
 
@@ -552,7 +552,7 @@ def _tab_diagnostics(df):
             ev = st.selectbox("环境列(可选)", ['(不选)'] + all_cat, key="dg_e")
         with d:
             blk = st.selectbox("区组列(可选)", ['(不选)'] + all_cat, key="dg_b")
-        run = st.button("▶ 运行诊断", type="primary", use_container_width=True, key="diag_run")
+        run = st.button("▶ 运行诊断", type="primary", key="diag_run")
     if not run:
         return
 
@@ -627,7 +627,7 @@ def _tab_report_export(df):
             include_ammi = st.checkbox("包含AMMI分析", value=True)
         with i:
             is_lt = st.checkbox("生产试验模式(试用LTPIP)", value=False, key="ex_lt")
-        run = st.button("📝 生成并下载报告", type="primary", use_container_width=True, key="export_run")
+        run = st.button("📝 生成并下载报告", type="primary", key="export_run")
     if not run:
         return
 

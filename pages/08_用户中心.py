@@ -292,7 +292,7 @@ with tab_account:
         st.markdown("**确认退出登录？**")
         clear_cache = st.checkbox("🗑️ 同时清除已上传的数据和分析缓存", value=True,
                                    help="勾选后，退出时将清除您上传的数据文件和分析参数缓存。下次登录需重新上传数据。")
-        if st.button("确认退出", use_container_width=True, type="primary"):
+        if st.button("确认退出", type="primary"):
             logout_user(clear_data_cache=clear_cache)
             st.rerun()
 
@@ -315,7 +315,7 @@ with tab_account:
         placeholder="确认注销"
     )
 
-    if st.button("🗑️ 注销账号", use_container_width=True, type="secondary"):
+    if st.button("🗑️ 注销账号", type="secondary"):
         if confirm_text != "确认注销":
             st.error('请输入 "确认注销" 以确认操作')
         else:

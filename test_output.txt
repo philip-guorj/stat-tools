@@ -1,0 +1,69 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.4, pytest-9.0.2, pluggy-1.6.0
+rootdir: D:\stat-tools
+plugins: anyio-3.7.1, timeout-2.4.0
+collected 20 items
+
+tests/test_ssr_analysis.py::TestDataLoading::test_data_shape PASSED      [  5%]
+tests/test_ssr_analysis.py::TestDataLoading::test_data_columns PASSED    [ 10%]
+tests/test_ssr_analysis.py::TestDataLoading::test_geno_means PASSED      [ 15%]
+tests/test_ssr_analysis.py::TestSSRMultipleComparisonRefactored::test_module_available PASSED [ 20%]
+tests/test_ssr_analysis.py::TestSSRMultipleComparisonRefactored::test_duncan_returns_dict PASSED [ 25%]
+tests/test_ssr_analysis.py::TestSSRMultipleComparisonRefactored::test_lsd_returns_correct_pairs PASSED [ 30%]
+tests/test_ssr_analysis.py::TestSSRMultipleComparisonRefactored::test_cld_letters_match_expected PASSED [ 35%]
+tests/test_ssr_analysis.py::TestSSRMultipleComparisonRefactored::test_snk_method_available PASSED [ 40%]
+tests/test_ssr_analysis.py::TestSSRMultipleComparisonRefactored::test_tukey_method_available PASSED [ 45%]
+tests/test_ssr_analysis.py::TestEdgeCases::test_single_genotype PASSED   [ 50%]
+tests/test_ssr_analysis.py::TestEdgeCases::test_two_genotypes_only PASSED [ 55%]
+tests/test_ssr_analysis.py::TestEdgeCases::test_cld_empty_data PASSED    [ 60%]
+tests/test_ssr_analysis.py::TestEdgeCases::test_cld_no_groups PASSED     [ 65%]
+tests/test_ssr_analysis.py::TestStabilityAnalysis::test_shukla_variance_basic FAILED [ 70%]
+tests/test_ssr_analysis.py::TestStabilityAnalysis::test_shukla_variance_consistency FAILED [ 75%]
+tests/test_ssr_analysis.py::TestStabilityAnalysis::test_eberhart_russell_basic FAILED [ 80%]
+tests/test_ssr_analysis.py::TestStabilityAnalysis::test_single_env_returns_none PASSED [ 85%]
+tests/test_ssr_analysis.py::TestCKComparison::test_compare_with_ck_basic PASSED [ 90%]
+tests/test_ssr_analysis.py::TestCKComparison::test_ck_self_comparison PASSED [ 95%]
+tests/test_ssr_analysis.py::TestCKComparison::test_ck_not_found FAILED   [100%]
+
+================================== FAILURES ===================================
+______________ TestStabilityAnalysis.test_shukla_variance_basic _______________
+tests\test_ssr_analysis.py:238: in test_shukla_variance_basic
+    assert col in result.columns, f'缺少列: {col}'
+E   AssertionError: 缺少列: 均值
+E   assert '均值' in Index(['品种', '总均值', '标准差', 'CV%', '平均排名', '排名范围', 'Shukla变异数', '产量分', '稳定性分',\n       '综合分'],\n      dtype='object')
+E    +  where Index(['品种', '总均值', '标准差', 'CV%', '平均排名', '排名范围', 'Shukla变异数', '产量分', '稳定性分',\n       '综合分'],\n      dtype='object') =       品种     总均值    标准差   CV%  平均排名 排名范围  Shukla变异数   产量分  稳定性分   综合分\n0  中单909  691.71  29.64  4.29   2.3  2~3    32.7148  48.7  15.7  64.4\n1  京科968  655.31  21.71  3.31   4.7  4~5    19.0878  46.1  23.5  69.6\n2  先玉335  710.18  37.78  5.32   1.0  1~1    42.8383  50.0   7.4  57.4\n3  登海605  671.98  41.95  6.24   3.7  3~5    46.7923  47.3   0.0  47.3\n4  郑单958  680.24  19.34  2.84   3.3  2~4    17.9666  47.9  27.2  75.1.columns
+___________ TestStabilityAnalysis.test_shukla_variance_consistency ____________
+tests\test_ssr_analysis.py:248: in test_shukla_variance_consistency
+    top = result.sort_values('均值', ascending=False).iloc[0]
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\phili\AppData\Roaming\Python\Python311\site-packages\pandas\core\frame.py:7211: in sort_values
+    k = self._get_label_or_level_values(by[0], axis=axis)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\phili\AppData\Roaming\Python\Python311\site-packages\pandas\core\generic.py:1914: in _get_label_or_level_values
+    raise KeyError(key)
+E   KeyError: '均值'
+______________ TestStabilityAnalysis.test_eberhart_russell_basic ______________
+tests\test_ssr_analysis.py:264: in test_eberhart_russell_basic
+    assert col in result['result'].columns, f'缺少列: {col}'
+E   AssertionError: 缺少列: s2d(偏差MS)
+E   assert 's2d(偏差MS)' in Index(['品种', '均值', '截距(a)', '回归系数(b)', 's2d (偏差MS)', 'R2', '判断', '推荐'], dtype='object')
+E    +  where Index(['品种', '均值', '截距(a)', '回归系数(b)', 's2d (偏差MS)', 'R2', '判断', '推荐'], dtype='object') =       品种      均值     截距(a)  回归系数(b)  s2d (偏差MS)      R2  判断 推荐\n0  中单909  691.71  691.7111   1.0306     52.9990  0.9752  稳定   \n1  京科968  655.31  655.3111   0.6036     12.6400  0.9827  迟钝   \n2  先玉335  710.18  710.1778   1.3657      4.7253  0.9987  敏感   \n3  登海605  671.98  671.9778   1.4581    200.9368  0.9541  敏感   \n4  郑单958  680.24  680.2444   0.5419     68.5036  0.8939  迟钝   .columns
+_____________________ TestCKComparison.test_ck_not_found ______________________
+tests\test_ssr_analysis.py:316: in test_ck_not_found
+    CKComparison.compare_with_ck(
+modules\ssr_analysis.py:392: in compare_with_ck
+    raise ValueError(f'对照品种 "{ck_name}" 未在数据中找到')
+E   ValueError: 对照品种 "不存在品种" 未在数据中找到
+
+During handling of the above exception, another exception occurred:
+tests\test_ssr_analysis.py:315: in test_ck_not_found
+    with pytest.raises(ValueError, match='.*未找到.*|.*not found.*'):
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: '.*未找到.*|.*not found.*'
+E     Actual message: '对照品种 "不存在品种" 未在数据中找到'
+=========================== short test summary info ===========================
+FAILED tests/test_ssr_analysis.py::TestStabilityAnalysis::test_shukla_variance_basic
+FAILED tests/test_ssr_analysis.py::TestStabilityAnalysis::test_shukla_variance_consistency
+FAILED tests/test_ssr_analysis.py::TestStabilityAnalysis::test_eberhart_russell_basic
+FAILED tests/test_ssr_analysis.py::TestCKComparison::test_ck_not_found - Asse...
+======================== 4 failed, 16 passed in 3.61s =========================

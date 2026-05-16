@@ -417,7 +417,7 @@ with tab_settings:
         help="每行一个，格式 金额:次数"
     )
 
-    if st.button("保存充值方案", type="primary", use_container_width=True):
+    if st.button("保存充值方案", type="primary"):
         import json
         try:
             plans = []
