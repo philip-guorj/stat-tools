@@ -1512,44 +1512,44 @@ def met_analysis(df):
         st.plotly_chart(fig_sp_cv, use_container_width=True, key='met_sp_cv')
 
         # 展开查看每个环境的详细ANOVA表
-        with st.expander("📋 查看每个环境的详细方差分析表"):
-            for env in environments:
-                df_env = df[df[environment] == env]
-                with st.expander(f"环境: {env}"):
-                    try:
-                        cat_cols_env = df_env.select_dtypes(include=['object', 'category']).columns.tolist()
-                        # 检测数值型分类变量（如区组用数字表示）
-                        num_cat_env = []
-                        for col in df_env.select_dtypes(include=[np.number]).columns:
-                            if col == response:
-                                continue
-                            uv = df_env[col].dropna().unique()
-                            nu = len(uv)
-                            if 2 <= nu <= 20 and all(float(v).is_integer() for v in uv):
-                                num_cat_env.append(col)
-                        potential_block = [c for c in (cat_cols_env + num_cat_env) if c not in [environment, genotype] and c != response]
+        st.markdown("#### 📋 各环境详细方差分析表")
+        for env in environments:
+            df_env = df[df[environment] == env]
+            with st.expander(f"环境: {env}"):
+                try:
+                    cat_cols_env = df_env.select_dtypes(include=['object', 'category']).columns.tolist()
+                    # 检测数值型分类变量（如区组用数字表示）
+                    num_cat_env = []
+                    for col in df_env.select_dtypes(include=[np.number]).columns:
+                        if col == response:
+                            continue
+                        uv = df_env[col].dropna().unique()
+                        nu = len(uv)
+                        if 2 <= nu <= 20 and all(float(v).is_integer() for v in uv):
+                            num_cat_env.append(col)
+                    potential_block = [c for c in (cat_cols_env + num_cat_env) if c not in [environment, genotype] and c != response]
 
-                        if len(potential_block) > 0:
-                            bv = potential_block[0]
-                            f = f'Q("{response}") ~ C(Q("{bv}")) + C(Q("{genotype}"))'
-                            m = ols(f, data=df_env).fit()
-                        else:
-                            f = f'Q("{response}") ~ C(Q("{genotype}"))'
-                            m = ols(f, data=df_env).fit()
+                    if len(potential_block) > 0:
+                        bv = potential_block[0]
+                        f = f'Q("{response}") ~ C(Q("{bv}")) + C(Q("{genotype}"))'
+                        m = ols(f, data=df_env).fit()
+                    else:
+                        f = f'Q("{response}") ~ C(Q("{genotype}"))'
+                        m = ols(f, data=df_env).fit()
 
-                        at = anova_lm(m, typ=2)
-                        # 单点ANOVA表重命名
-                        at_renamed = _rename_anova_index(at, environment, genotype,
-                                                          bv if len(potential_block) > 0 else None,
-                                                          is_met=False)
-                        display_anova_table(at_renamed, f"{env} — ANOVA")
+                    at = anova_lm(m, typ=2)
+                    # 单点ANOVA表重命名
+                    at_renamed = _rename_anova_index(at, environment, genotype,
+                                                      bv if len(potential_block) > 0 else None,
+                                                      is_met=False)
+                    display_anova_table(at_renamed, f"{env} — ANOVA")
 
-                        gs = df_env.groupby(genotype)[response].agg(['mean', 'std']).round(2)
-                        gs.columns = ['均值', '标准差']
-                        gs = gs.sort_values('均值', ascending=False)
-                        st.dataframe(gs)
-                    except Exception as e2:
-                        st.warning(f"{env} 分析异常: {e2}")
+                    gs = df_env.groupby(genotype)[response].agg(['mean', 'std']).round(2)
+                    gs.columns = ['均值', '标准差']
+                    gs = gs.sort_values('均值', ascending=False)
+                    st.dataframe(gs)
+                except Exception as e2:
+                    st.warning(f"{env} 分析异常: {e2}")
 
 
         # ========== Tab 2: 联合方差分析 ==========
