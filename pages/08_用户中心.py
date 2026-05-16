@@ -185,7 +185,7 @@ with tab_recharge:
                 max_chars=8
             )
 
-            submitted = st.form_submit_button("立即充值", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("立即充值", type="primary")
 
             if submitted:
                 if not code_input:
@@ -262,7 +262,7 @@ with tab_password:
         new_pw = st.text_input("新密码", type="password", key="new_pw", placeholder="至少6位新密码")
         new_pw2 = st.text_input("确认新密码", type="password", key="new_pw2", placeholder="再次输入新密码")
 
-        submitted = st.form_submit_button("修改密码", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("修改密码", type="primary")
 
         if submitted:
             if not old_pw or not new_pw:

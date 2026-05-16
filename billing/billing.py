@@ -91,7 +91,7 @@ def require_auth(admin_only: bool = False):
         with st.form("login_form"):
             phone = st.text_input("手机号", key="login_phone", placeholder="请输入手机号")
             password = st.text_input("密码", type="password", key="login_password", placeholder="请输入密码")
-            submitted = st.form_submit_button("登录", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("登录", type="primary")
             if submitted:
                 if not phone or not password:
                     st.error("请输入手机号和密码")
@@ -139,12 +139,12 @@ def require_auth(admin_only: bool = False):
                 captcha_input = st.text_input("请输入验证码", key="captcha_input", placeholder="不区分大小写", label_visibility="visible")
             with c_btn:
                 st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
-                if st.form_submit_button("🔄 换一张", key="captcha_refresh_btn"):
+                if st.form_submit_button("🔄 换一张"):
                     refresh_captcha()
                     st.rerun()
 
             # 第五行：注册按钮
-            submitted = st.form_submit_button("注册", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("注册", type="primary")
             if submitted:
                 if not reg_phone:
                     st.error("请填写手机号")

@@ -98,7 +98,7 @@ with tab_codes:
         with col_amount:
             gen_amount = st.number_input("每次充值次数", min_value=1, max_value=10000, value=10)
         
-        submitted = st.form_submit_button("生成兑换码", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("生成兑换码", type="primary")
         
         if submitted:
             codes = generate_codes(user['id'], gen_count, gen_amount)
@@ -352,7 +352,7 @@ with tab_settings:
             help="用户登录后 Token 的有效时长"
         )
 
-        submitted = st.form_submit_button("保存设置", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("保存设置", type="primary")
         if submitted:
             set_system_setting('new_user_free_quota', str(new_free))
             set_system_setting('token_expire_hours', str(new_expire))
@@ -393,7 +393,7 @@ with tab_settings:
             qr_preview = base64.b64encode(qr_bytes).decode()
             st.image(qr_bytes, width=150)
 
-        pay_submitted = st.form_submit_button("保存收款信息", type="primary", use_container_width=True)
+        pay_submitted = st.form_submit_button("保存收款信息", type="primary")
         if pay_submitted:
             # 未重新上传二维码时保留旧值
             final_qr = qr_preview if qr_preview else current_payment.get('qr_code', '')
