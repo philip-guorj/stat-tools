@@ -331,11 +331,11 @@ def _display_tukey_result(tukey_obj, alpha=0.05):
             pass
 
     if df_tukey is not None:
-        with st.expander("Tukey HSD \u6210\u5bf9\u6bd4\u8f83\u8be6\u60c5", expanded=False):
-            st.dataframe(df_tukey)
+        st.markdown("**Tukey HSD 成对比较详情**")
+        st.dataframe(df_tukey)
         _render_cld_letters(tukey_obj, df_tukey, alpha)
     else:
-        st.info("Tukey HSD \u68c0\u9a8c\u5df2\u5b8c\u6210")
+        st.info("Tukey HSD 检验已完成")
 
 
 def _render_cld_letters(tukey_obj, df_tukey, alpha=0.05):
