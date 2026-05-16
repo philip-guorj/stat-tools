@@ -11,13 +11,18 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from utils.data_manager import get_data_manager
+from utils.data_manager import get_current_dm
 from utils.styles import inject_css
+from utils.visitor_logger import log_visit
+from billing.billing import require_auth
 
 
 def render_visualization():
+    require_auth()
+    log_visit("数据可视化")
     inject_css()
     st.markdown('<div class="section-header">📊 数据可视化</div>', unsafe_allow_html=True)
+
     
     # 功能简介下拉菜单
     with st.expander("📖 功能简介", expanded=False):
@@ -53,29 +58,29 @@ def render_visualization():
         </div>
         """, unsafe_allow_html=True)
     
-    dm = get_data_manager()
+    dm = get_current_dm()
     
     if not dm.is_loaded:
-        st.warning("⚠️ 请先上传数据文件")
+        st.warning("⚠️ 请从首页上传数据")
         return
     
     df = dm.data
-    numeric_cols = dm.get_numeric_columns()
-    categorical_cols = dm.get_categorical_columns()
+    numeric_cols = dm.get_pure_numeric_columns()
+    categorical_cols = dm.get_all_categorical_columns()
     
     chart_type = st.selectbox(
         "选择图表类型",
         [
             "---",
-            "📈 折线图 (Line Chart)",
-            "📊 柱状图 (Bar Chart)",
-            "📦 箱线图 (Box Plot)",
-            "📉 直方图/分布 (Histogram)",
-            "🔵 散点图 (Scatter Plot)",
-            "🌡️ 热力图 (Heatmap)",
-            "🥧 饼图 (Pie Chart)",
-            "🎻 小提琴图 (Violin Plot)",
-            "🔗 散点矩阵 (Scatter Matrix)",
+            "📈 折线图",
+            "📊 柱状图",
+            "📦 箱线图",
+            "📉 直方图/分布",
+            "🔵 散点图",
+            "🌡️ 热力图",
+            "🥧 饼图",
+            "🎻 小提琴图",
+            "🔗 散点矩阵",
             "📐 面积图/堆叠面积图"
         ]
     )
@@ -150,13 +155,21 @@ def show_viz_gallery(df, num_cols, cat_cols):
             title='数值变量关系预览'
         )
         fig_preview.update_layout(height=500)
-        st.plotly_chart(fig_preview, use_container_width=True)
+        st.plotly_chart(fig_preview, width="stretch")
 
 
 # ========== 图表实现 ==========
 
 def line_chart(df, num_cols, cat_cols):
     """折线图"""
+    st.info("""
+    **折线图**用于展示数据随时间或序列的变化趋势。
+    
+    **适用场景**：时间序列数据、连续变量的趋势观察。
+    
+    **选项**：可选分组/颜色变量来比较多组数据趋势，可显示数据点标记。
+    """)
+    
     y_col = st.selectbox("Y轴 (数值)", num_cols, key="line_y")
     x_col = st.selectbox("X轴", ["索引"] + num_cols + cat_cols, key="line_x")
     color_col = st.selectbox("分组/颜色", ["无"] + cat_cols + num_cols, key="line_color")
@@ -169,18 +182,36 @@ def line_chart(df, num_cols, cat_cols):
     if color_col != "无":
         fig_args['color'] = color_col
     
-    fig = px.line(df.dropna(subset=[y_col]), **fig_args)
+    plot_df = df.dropna(subset=[y_col])
+    fig = px.line(plot_df, **fig_args)
+    
+    # X轴为分类变量时，按Y均值从大到小排序
+    if x_col in cat_cols:
+        order_vals = plot_df.groupby(x_col)[y_col].mean().sort_values(ascending=False)
+        cat_order = order_vals.index.tolist()
+        fig.update_xaxes(categoryorder='array', categoryarray=cat_order)
     
     # 添加标记点
     if st.checkbox("显示数据点"):
         fig.update_traces(mode='lines+markers', marker_size=4)
     
     update_fig_layout(fig, f'折线图 - {y_col}')
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def bar_chart(df, num_cols, cat_cols):
     """柱状图"""
+    st.info("""
+    **柱状图**用于比较各类别的数值大小。
+    
+    **三种模式**：
+    - **分类统计**：按分类分组，计算均值/求和等
+    - **单变量计数**：统计每个值出现的频数
+    - **聚合比较**：分组计算均值，带误差棒（标准差）
+    
+    **适用场景**：类别间比较、频数分布展示。
+    """)
+    
     chart_mode = st.radio("柱状图模式", 
                            ["分类统计", "单变量计数", "聚合比较"], horizontal=True,
                            key="bar_mode")
@@ -190,22 +221,31 @@ def bar_chart(df, num_cols, cat_cols):
         x_col = st.selectbox("X轴 (分类)", cat_cols, key="bar_x")
         color_col = st.selectbox("颜色分组", ["无"] + cat_cols, key="bar_color")
         
-        agg_func = st.selectbox("聚合函数", ['mean', 'sum', 'count', 'median', 'max', 'min'])
+        agg_func = st.selectbox("聚合函数",
+                                ['mean', 'sum', 'count', 'median', 'max', 'min'],
+                                format_func=lambda x: {'mean':'均值','sum':'求和','count':'计数',
+                                                       'median':'中位数','max':'最大值','min':'最小值'}[x])
+        
+        # 按聚合值从大到小排序 X 轴类别
+        order_df = df.groupby(x_col)[y_col].agg(agg_func).sort_values(ascending=False)
+        cat_order = order_df.index.tolist()
         
         fig = px.bar(df, x=x_col, y=y_col,
                      color=(color_col if color_col!="无" else None),
                      barmode=st.selectbox('柱状图模式', ['stack', 'group', 'overlay']))
+        fig.update_xaxes(categoryorder='array', categoryarray=cat_order)
         
     elif chart_mode == "单变量计数":
         count_col = st.selectbox("计数变量", cat_cols + num_cols, key="bar_count")
-        fig = px.bar(df[count_col].value_counts().reset_index(), 
-                    x='index', y=count_col, title=f'{count_col} 分布')
+        count_data = df[count_col].value_counts().sort_values(ascending=False).reset_index()
+        fig = px.bar(count_data, x='index', y=count_col, title=f'{count_col} 分布')
     
     else:  # 聚类比较
         y_col = st.selectbox("Y轴", num_cols, key="bar_agg_y")
         group_col = st.selectbox("分组变量", cat_cols, key="bar_agg_group")
         
         grouped = df.groupby(group_col)[y_col].agg(['mean', 'std']).reset_index()
+        grouped = grouped.sort_values('mean', ascending=False)
         fig = go.Figure([
             go.Bar(name='均值', x=grouped[group_col], y=grouped['mean'],
                   error_y=dict(type='data', array=grouped['std'])),
@@ -217,16 +257,33 @@ def bar_chart(df, num_cols, cat_cols):
         pass
     
     update_fig_layout(fig, '柱状图', height=450)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def box_plot(df, num_cols, cat_cols):
     """箱线图"""
+    st.info("""
+    **箱线图**用于展示数据的分布特征：中位数、四分位距、异常值。
+    
+    **组成部分**：箱体（Q1~Q3）、中线（中位数）、须线（1.5×IQR范围）、点（异常值）。
+    
+    **适用场景**：多组数据分布比较、异常值检测。
+    
+    **选项**：可按分组变量着色，显示异常点，开启中位 notch 显示置信区间。
+    """)
+    
     y_col = st.selectbox("Y轴 (数值)", num_cols, key="box_y")
     x_col = st.selectbox("X轴 (分组)", ["无"] + cat_cols, key="box_x")
     color_col = st.selectbox("颜色细分", ["无"] + cat_cols + num_cols, key="box_color")
     
     plot_df = df.dropna(subset=[y_col])
+    
+    # 按Y中位数对X轴分组排序（从大到小）
+    if x_col != "无":
+        median_order = plot_df.groupby(x_col)[y_col].median().sort_values(ascending=False)
+        cat_order = median_order.index.tolist()
+    else:
+        cat_order = None
     
     show_points = st.checkbox("显示异常点", value=True)
     show_notched = st.checkbox("显示中位 notch")
@@ -244,12 +301,26 @@ def box_plot(df, num_cols, cat_cols):
         if show_points:
             fig.update_traces(boxpoints='all', jitter=0.3)
 
+    if cat_order:
+        fig.update_xaxes(categoryorder='array', categoryarray=cat_order)
+
     update_fig_layout(fig, f'箱线图 - {y_col}')
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def histogram(df, num_cols, cat_cols):
     """直方图与分布图"""
+    st.info("""
+    **直方图**用于展示单个数值变量的分布形态（频率或密度）。
+    
+    **三种视图**：
+    - **频率直方图**：经典柱状分布图，可叠加边距箱线图
+    - **密度曲线**：KDE核密度估计，平滑展示分布形态
+    - **累积分布**：累积分布函数(CDF)，展示分位数信息
+    
+    **选项**：可调节组数(bins)控制精度。
+    """)
+    
     var_col = st.selectbox("变量", num_cols, key="hist_var")
     bins = st.slider("组数", min_value=10, max_value=100, value=30, key="hist_bins")
     
@@ -260,7 +331,7 @@ def histogram(df, num_cols, cat_cols):
                           marginal="box" if st.checkbox("边距图") else None,
                           title=f'{var_col} 分布')
         update_fig_layout(fig, f'{var_col} 分布', height=400)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     
     with tab_dist:
         # KDE核密度估计
@@ -272,62 +343,73 @@ def histogram(df, num_cols, cat_cols):
         
         fig_kde = go.Figure()
         fig_kde.add_trace(go.Scatter(x=kde_x, y=kde, fill='tozeroy',
-                                     name='KDE密度', line_color='#3498db'))
+                                     name='核密度', line_color='#3498db'))
         fig_kde.add_histogram(x=data, histnorm='probability density',
                        name='归一化直方图',
                        marker_color='rgba(55,128,191,0.3)')
         fig_kde.update_layout(title=f'{var_col} 密度分布', height=400)
-        st.plotly_chart(fig_kde, use_container_width=True)
+        st.plotly_chart(fig_kde, width="stretch")
     
     with tab_cum:
         sorted_data = np.sort(data)
         cdf = np.arange(1, len(sorted_data)+1) / len(sorted_data)
         
         fig_cdf = go.Figure()
-        fig_cdf.add_scatter(x=sorted_data, y=cdf, mode='lines', name='CDF')
+        fig_cdf.add_scatter(x=sorted_data, y=cdf, mode='lines', name='累积分布')
         fig_cdf.update_layout(
             title=f'{var_col} 累积分布函数',
             height=350,
             xaxis=dict(title=var_col),
             yaxis=dict(title='累积概率')
         )
-        st.plotly_chart(fig_cdf, use_container_width=True)
+        st.plotly_chart(fig_cdf, width="stretch")
 
 
 def scatter_plot(df, num_cols, cat_cols):
     """散点图"""
+    st.info("""
+    **散点图**用于展示两个数值变量之间的关系。
+    
+    **增强功能**：
+    - **趋势线**：可选线性回归线或局部加权回归(LOWESS)
+    - **大小/颜色变量**：用第三/第四个变量编码点的大小和颜色
+    - **相关系数**：自动计算并显示 Pearson r
+    
+    **适用场景**：探索变量间关系、检验线性/非线性趋势。
+    """)
+    
     y_col = st.selectbox("Y轴", num_cols, key="scat_y")
     x_col = st.selectbox("X轴", [c for c in num_cols if c != y_col], key="scat_x")
     size_col = st.selectbox("大小变量", ["无"] + num_cols, key="scat_size")
     color_col = st.selectbox("颜色变量", ["无"] + cat_cols + num_cols, key="scat_color")
     
     # 回归趋势线
-    trend_opt = st.selectbox("趋势线", ["无", "线性(OLS)", "LOWESS"], key="scat_trend")
+    trend_opt = st.selectbox("趋势线", ["无", "线性回归", "局部加权回归(LOWESS)"], key="scat_trend")
     
     fig = px.scatter(df, x=x_col, y=y_col,
                      size=size_col if size_col!="无" else None,
                      color=color_col if color_col!="无" else None,
                      hover_data=df.columns.tolist()[:5])
     
-    if trend_opt == "线性(OLS)":
+    if trend_opt == "线性回归":
         clean = df[[x_col, y_col]].dropna()
         slope, intercept, r, p, se = scipy_stats.linregress(clean[x_col], clean[y_col])  # type: ignore
         fig.add_trace(go.Scatter(x=clean[x_col], y=slope*clean[x_col]+intercept,
                                 mode='lines', name=f'趋势线 R²={r**2:.3f}',
                                 line=dict(color='red', dash='dash')))
-    elif trend_opt == "LOWESS":
+    elif trend_opt == "局部加权回归(LOWESS)":
         try:
             import statsmodels.nonparametric.smoothers_lowess as lowess
             clean = df[[x_col, y_col]].dropna()
             smoothed = lowess.lowess(clean[y_col], clean[x_col], frac=0.3)
             fig.add_trace(go.Scatter(x=smoothed[:, 0], y=smoothed[:, 1],
-                                    mode='lines', name='LOWESS',
+                                    mode='lines', name='局部加权回归',
                                     line=dict(color='red', width=2)))
-        except:
+        except Exception:
             pass
     
     update_fig_layout(fig, f'{y_col} vs {x_col}', height=500)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     
     # 相关系数
     corr = df[x_col].corr(df[y_col])
@@ -336,13 +418,25 @@ def scatter_plot(df, num_cols, cat_cols):
 
 def heatmap(df, num_cols, cat_cols):
     """热力图"""
+    st.info("""
+    **热力图**用颜色编码矩阵中数值的大小，直观展示模式。
+    
+    **三种类型**：
+    - **相关系数矩阵**：查看变量间相关关系，红色正相关、蓝色负相关
+    - **交叉频数表**：两个分类变量的频数交叉表
+    - **透视表聚合**：按行列分类聚合数值变量（均值/求和/计数）
+    
+    **适用场景**：相关关系探索、多组交叉比较。
+    """)
+    
     heat_type = st.radio("热力图类型",
                          ["相关系数矩阵", "交叉频数表", "透视表聚合"],
                          horizontal=True, key="heat_type")
     
     if heat_type == "相关系数矩阵":
         selected = st.multiselect("选择变量", num_cols, default=num_cols[:min(8, len(num_cols))])
-        method = st.selectbox("相关方法", ["pearson", "spearman", "kendall"])
+        method = st.selectbox("相关方法", ["pearson", "spearman", "kendall"],
+                              format_func=lambda x: {"pearson":"皮尔逊","spearman":"斯皮尔曼","kendall":"肯德尔"}[x])
         
         corr_mat = df[selected].corr(method=method)
         
@@ -363,7 +457,8 @@ def heatmap(df, num_cols, cat_cols):
         val_col = st.selectbox("值变量", num_cols, key="heat_val")
         idx_col = st.selectbox("行变量", cat_cols, key="heat_idx")
         col_var = st.selectbox("列变量", [c for c in cat_cols if c != idx_col], key="heat_col2")
-        agg_func = st.selectbox("聚合", ['mean', 'sum', 'count'], key="heat_agg")
+        agg_func = st.selectbox("聚合", ['mean', 'sum', 'count'], key="heat_agg",
+                                format_func=lambda x: {'mean':'均值','sum':'求和','count':'计数'}[x])
         
         pivot = df.pivot_table(values=val_col, index=idx_col, columns=col_var, aggfunc=agg_func)
         fig = px.imshow(pivot.fillna(0), text_auto='.1f', aspect='auto',
@@ -371,21 +466,33 @@ def heatmap(df, num_cols, cat_cols):
                         title=f'{val_col} 透视表 ({agg_func})')
     
     fig.update_layout(height=500)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def pie_chart(df, cat_cols, num_cols):
     """饼图/环形图"""
+    st.info("""
+    **饼图/环形图**用于展示各部分占总体的比例。
+    
+    **数据模式**：
+    - **计数**：统计每个分类的频数
+    - **求和**：按分类对数值变量求和后展示比例
+    
+    **选项**：可切换为环形图样式（中心留空）。
+    
+    **建议**：类别≤5个时效果最佳，类别过多时建议改用柱状图。
+    """)
+    
     category_col = st.selectbox("分类变量", cat_cols + num_cols, key="pie_cat")
     values_col = st.selectbox("数值变量 (用于求和)", 
                               ["计数"] + num_cols, key="pie_val")
     
     if values_col == "计数":
-        pie_data = df[category_col].value_counts()
+        pie_data = df[category_col].value_counts().sort_values(ascending=False)
         labels = pie_data.index
         values = pie_data.values
     else:
-        pie_data = df.groupby(category_col)[values_col].sum()
+        pie_data = df.groupby(category_col)[values_col].sum().sort_values(ascending=False)
         labels = pie_data.index
         values = pie_data.values
     
@@ -398,28 +505,60 @@ def pie_chart(df, cat_cols, num_cols):
     
     fig.update_layout(title=f'{category_col} 分布{" ("+values_col+")" if values_col!="计数" else ""}',
                      height=500)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def violin_plot(df, num_cols, cat_cols):
     """小提琴图"""
+    st.info("""
+    **小提琴图**结合了箱线图和核密度估计，展示数据分布的完整形状。
+    
+    **特点**：宽度反映该位置的密度，内部嵌套箱线图显示中位数和四分位数。
+    
+    **适用场景**：比较多组数据的分布形态差异，比箱线图信息更丰富。
+    
+    **选项**：可选数据点显示方式（仅异常值/全部），可按变量着色。
+    """)
+    
     y_col = st.selectbox("Y轴 (数值)", num_cols, key="vio_y")
     x_col = st.selectbox("X轴 (分组)", ["无"] + cat_cols, key="vio_x")
     color_col = st.selectbox("颜色", ["无"] + cat_cols, key="vio_color")
     
-    fig = px.violin(df, y=y_col, 
+    # 按Y中位数对X轴分组排序（从大到小）
+    plot_df = df.dropna(subset=[y_col])
+    if x_col != "无":
+        median_order = plot_df.groupby(x_col)[y_col].median().sort_values(ascending=False)
+        cat_order = median_order.index.tolist()
+    else:
+        cat_order = None
+    
+    fig = px.violin(plot_df, y=y_col,
                     x=x_col if x_col!="无" else None,
                     color=color_col if color_col!="无" else None,
                     box=True,  # 显示内部箱线图
-                    points=st.selectbox("数据点", ["outliers", "all", False]),  # type: ignore
+                    points=st.selectbox("数据点", ["outliers", "all", False],
+                                        format_func=lambda x: {False:"不显示","outliers":"仅异常值","all":"全部"}[x]),  # type: ignore
                     title=f'{y_col} 小提琴图')
     
+    if cat_order:
+        fig.update_xaxes(categoryorder='array', categoryarray=cat_order)
+    
     update_fig_layout(fig, f'小提琴图 - {y_col}', height=450)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def scatter_matrix(df, num_cols):
     """散点矩阵图"""
+    st.info("""
+    **散点矩阵**同时展示多个数值变量两两之间的关系。
+    
+    **内容**：对角线为各变量的分布直方图，非对角线为两两散点图。
+    
+    **适用场景**：多变量关系的快速总览、初步探索性分析。
+    
+    **建议**：选择2~6个变量效果最佳；大数据集会自动降采样以保证性能。
+    """)
+    
     selected = st.multiselect("选择变量 (建议2-6个)", 
                              num_cols, default=num_cols[:min(4, len(num_cols))])
     
@@ -440,11 +579,23 @@ def scatter_matrix(df, num_cols):
                             opacity=0.7,
                             title='散点矩阵')
     fig.update_layout(height=600)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def area_chart(df, num_cols, cat_cols):
     """面积图"""
+    st.info("""
+    **面积图**用于展示多组数据随序列变化的累积趋势。
+    
+    **两种模式**：
+    - **普通面积图**：各系列透明叠加，可看到各自趋势
+    - **堆叠面积图**：各系列堆叠显示，强调各部分对总量的贡献
+    
+    **适用场景**：时间序列的累积变化、总量构成的动态展示。
+    
+    **选项**：可多选Y轴变量。
+    """)
+    
     y_cols = st.multiselect("Y轴变量 (可多选)", num_cols, default=num_cols[:3], key="area_y")
     x_col = st.selectbox("X轴", ["索引"] + num_cols + cat_cols, key="area_x")
     
@@ -460,7 +611,7 @@ def area_chart(df, num_cols, cat_cols):
                  facet_col=None)
     
     update_fig_layout(fig, '面积图', height=450)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 # ========== 辅助函数 ==========
@@ -473,7 +624,8 @@ def update_fig_layout(fig, title, height=450):
         title=title,
         height=height,
         template='plotly_white',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+                    title_text=None)
     )
 
 

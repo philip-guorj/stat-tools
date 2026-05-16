@@ -8,40 +8,79 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from scipy import stats
-from scipy.optimize import curve_fit
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import warnings
 warnings.filterwarnings('ignore')
 
-from utils.data_manager import get_data_manager
+from utils.data_manager import get_current_dm
 from utils.styles import inject_css
+from utils.visitor_logger import log_visit
+from billing.billing import require_auth
 
-# 全局缓存延迟导入的模块
-_sm_cache = None
-_vif_cache = None
+# ========== 统一延迟导入（自 utils.imports）==========
+from utils.imports import get_sm as _get_sm, get_vif as _get_vif
 
-def _get_sm():
-    """延迟导入statsmodels.api（单例）"""
-    global _sm_cache
-    if _sm_cache is None:
-        import statsmodels.api as sm
-        _sm_cache = sm
-    return _sm_cache
 
-def _get_vif():
-    """延迟导入VIF计算（单例）"""
-    global _vif_cache
-    if _vif_cache is None:
-        from statsmodels.stats.outliers_influence import variance_inflation_factor
-        _vif_cache = variance_inflation_factor
-    return _vif_cache
+def _get_summary_table(model, table_idx=1):
+    """获取模型summary表格，兼容不同版本的statsmodels
+    
+    Args:
+        model: 拟合的statsmodels模型
+        table_idx: 表格索引 (0=整体信息, 1=系数表)
+        
+    Returns:
+        DataFrame 或 SimpleTable对象
+    """
+    try:
+        # 新版 statsmodels (0.14+): 使用 summary_df 或 summary().tables
+        # 尝试直接从模型获取DataFrame
+        if hasattr(model, 'summary_frame') and table_idx == 1:
+            return model.summary_frame()
+        
+        # 尝试 pvalues 和 params 构建系数表
+        if table_idx == 1:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                coef_df = pd.DataFrame({
+                    '': model.params.index,
+                    '系数': model.params.values,
+                    '标准误': model.bse.values,
+                    't值': model.tvalues.values,
+                    'P>|t|': model.pvalues.values,
+                    '95%CI下': model.conf_int()[0].values,
+                    '95%CI上': model.conf_int()[1].values
+                }).set_index('')
+                return coef_df
+        
+        return model.summary().tables[table_idx]
+        
+    except Exception:
+        # 回退到旧版方式
+        try:
+            return model.summary().tables[table_idx]
+        except (AttributeError, IndexError):
+            # 最后回退：手动构建
+            if table_idx == 1:
+                coef_df = pd.DataFrame({
+                    '': model.params.index.tolist(),
+                    '系数': model.params.values,
+                    '标准误': getattr(model, 'bse', [np.nan]*len(model.params)).values if hasattr(model.bse, '__iter__') else model.bse,
+                    't值': model.tvalues.values if hasattr(model, 'tvalues') else [np.nan]*len(model.params),
+                    'P>|t|': model.pvalues.values,
+                })
+                return coef_df.set_index('')
+            raise
 
 
 def render_regression():
+    require_auth()
+    log_visit("回归分析")
     inject_css()
     st.markdown('<div class="section-header">📉 回归分析</div>', unsafe_allow_html=True)
+
     
     # 功能简介下拉菜单
     with st.expander("📖 功能简介", expanded=False):
@@ -71,10 +110,10 @@ def render_regression():
         </div>
         """, unsafe_allow_html=True)
     
-    dm = get_data_manager()
+    dm = get_current_dm()
     
     if not dm.is_loaded:
-        st.warning("⚠️ 请先上传数据文件")
+        st.warning("⚠️ 请从首页上传数据")
         return
     
     df = dm.data
@@ -87,7 +126,7 @@ def render_regression():
             "简单线性回归",
             "多元线性回归",
             "多项式回归",
-            "逐步回归 (Stepwise)",
+            "逐步回归",
             "Logistic回归"
         ]
     )
@@ -107,8 +146,11 @@ def render_regression():
     elif reg_type == "多项式回归":
         polynomial_regression(df, numeric_cols)
     
-    elif reg_type == "逐步回归 (Stepwise)":
+    elif reg_type == "逐步回归":
         stepwise_regression(df, numeric_cols)
+    
+    elif reg_type == "Logistic回归":
+        logistic_regression(df, numeric_cols)
 
 
 def show_regression_overview():
@@ -127,6 +169,23 @@ def show_regression_overview():
 
 def simple_linear_regression(df, numeric_cols):
     st.markdown("### 📈 简单线性回归: Y = aX + b")
+    
+    st.info("""
+    **简单线性回归**用于研究两个连续变量之间的线性关系。
+    
+    **数据要求**：1个因变量(Y) + 1个自变量(X)，均为数值型。
+    
+    **模型**：Y = aX + b（截距 + 斜率×自变量）。
+    
+    **关键指标**：
+    - **R²**：模型解释的变异比例，越接近1拟合越好
+    - **p值**：回归方程整体显著性
+    - **标准误(SE)**：回归系数的估计精度
+    
+    **前提条件**：线性关系、残差正态、残差方差齐、独立性。
+    
+    **输出**：回归方程、ANOVA表、散点图+回归线+置信带、残差诊断图。
+    """)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -205,12 +264,13 @@ def simple_linear_regression(df, numeric_cols):
                             y=np.concatenate([ci_lower, ci_upper[::-1]]),
                             fill='toself', fillcolor='rgba(255,0,0,0.15)',
                             line=dict(color='rgba(255,255,255,0)'),
-                            showlegend=False, name='95% CI'))
+                            showlegend=False, name='95% 置信区间'))
     
     eq_str = f'Y = {slope:.3f}X + {intercept:.3f}, R²={r_squared:.4f}'
     fig.update_layout(title=f'{y_var} vs {x_var}<br><sup>{eq_str}</sup>',
-                     xaxis_title=x_var, yaxis_title=y_var, height=500)
-    st.plotly_chart(fig, use_container_width=True)
+                     xaxis_title=x_var, yaxis_title=y_var, height=500,
+                     legend_title_text=None)
+    st.plotly_chart(fig, width="stretch")
     
     # 残差诊断图
     residuals = y - y_pred
@@ -225,7 +285,7 @@ def simple_linear_regression(df, numeric_cols):
         fig_resid.add_hline(y=0, line_dash='dash', line_color='red')
         fig_resid.update_layout(title='残差 vs 拟合值', 
                                xaxis_title='拟合值', yaxis_title='残差', height=350)
-        st.plotly_chart(fig_resid, use_container_width=True)
+        st.plotly_chart(fig_resid, width="stretch")
     
     with diag_col2:
         # Q-Q图
@@ -239,11 +299,26 @@ def simple_linear_regression(df, numeric_cols):
         fig_qq.add_trace(go.Scatter(x=qq_x, y=qq_x, mode='lines',
                                     line_dash='dash', name='参考线'))
         fig_qq.update_layout(title='残差Q-Q正态检验', height=350)
-        st.plotly_chart(fig_qq, use_container_width=True)
+        st.plotly_chart(fig_qq, width="stretch")
 
 
 def multiple_regression(df, numeric_cols):
     st.markdown("### 📊 多元线性回归")
+    
+    st.info("""
+    **多元线性回归**用于研究多个自变量对因变量的联合影响。
+    
+    **数据要求**：1个因变量(Y) + ≥2个自变量(X₁...Xₙ)，均为数值型。
+    
+    **模型**：Y = β₀ + β₁X₁ + β₂X₂ + ... + βₙXₙ。
+    
+    **关键指标**：
+    - **R² / 调整R²**：模型解释力（调整R²对变量数做了惩罚，更可靠）
+    - **VIF**：方差膨胀因子，VIF>10提示多重共线性
+    - **标准化系数(Beta)**：比较各自变量相对重要性
+    
+    **输出**：回归方程、系数表(含VIF)、ANOVA表、残差诊断图、标准化系数。
+    """)
     
     y_var = st.selectbox("因变量 (Y)", numeric_cols, key="mlr_y")
     x_vars = st.multiselect(
@@ -299,12 +374,33 @@ def multiple_regression(df, numeric_cols):
             coef_df = pd.DataFrame(coef_summary.data[1:], columns=coef_summary.data[0]).set_index('')
         vif_df = vif_data.set_index('变量')
         combined = coef_df.join(vif_df, how='left')
-        st.dataframe(combined.round(4), use_container_width=True)
+        st.dataframe(combined.round(4), width="stretch")
         
-        st.caption("*VIF > 10 表示存在多重共线性")
+        st.caption("*VIF > 10 表示存在多重共线性")  # VIF为通用统计缩写，保留
     
     with tab_ano:
-        anova_table = _get_sm().stats.anova_lm(model, typ=2)
+        # sm.OLS矩阵模式下anova_lm需要design_info（仅formula API提供），
+        # 新版statsmodels会抛AttributeError，因此手动构建type II ANOVA表
+        try:
+            anova_table = _get_sm().stats.anova_lm(model, typ=2)
+        except (AttributeError, ValueError):
+            # 手动构建ANOVA表
+            n = int(model.nobs)
+            k = int(model.df_model)
+            ss_model = float(model.ess)
+            ss_resid = float(model.ssr)
+            ss_total = ss_model + ss_resid
+            ms_model = ss_model / k if k > 0 else 0
+            ms_resid = ss_resid / model.df_resid if model.df_resid > 0 else 0
+            f_val = float(model.fvalue) if hasattr(model, 'fvalue') else (ms_model / ms_resid if ms_resid > 0 else 0)
+            p_val = float(model.f_pvalue) if hasattr(model, 'f_pvalue') else 0
+            anova_table = pd.DataFrame({
+                'df': [k, model.df_resid, n - 1],
+                'sum_sq': [ss_model, ss_resid, ss_total],
+                'mean_sq': [ms_model, ms_resid, ''],
+                'F': [f_val, '', ''],
+                'PR(>F)': [p_val, '', '']
+            }, index=['回归', '残差', '总计'])
         display_anova_ml_table(anova_table)
     
     with tab_diag:
@@ -317,7 +413,7 @@ def multiple_regression(df, numeric_cols):
             fig1.add_trace(go.Scatter(x=fitted, y=residuals, mode='markers', opacity=0.6))
             fig1.add_hline(y=0, line_dash='dash')
             fig1.update_layout(title='残差 vs 拟合值', height=300)
-            st.plotly_chart(fig1, use_container_width=True)
+            st.plotly_chart(fig1, width="stretch")
         
         with d2:
             from scipy.stats import probplot
@@ -328,16 +424,31 @@ def multiple_regression(df, numeric_cols):
                             y=[min(qq_d[0][1]), max(qq_d[0][1])],
                             mode='lines', line_dash='dash')
             fig2.update_layout(title='Q-Q图', height=300)
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
     
     # 标准化系数（Beta）
     st.markdown("#### 标准化回归系数 (Beta)")
     beta_df = calculate_standardized_coefficients(model, x_vars)
-    st.dataframe(beta_df.round(4), use_container_width=True)
+    st.dataframe(beta_df.round(4), width="stretch")
 
 
 def polynomial_regression(df, numeric_cols):
     st.markdown("### 📐 多项式回归")
+    
+    st.info("""
+    **多项式回归**用于拟合变量间的非线性（曲线）关系。
+    
+    **数据要求**：1个因变量(Y) + 1个自变量(X)，均为数值型。
+    
+    **模型**：Y = β₀ + β₁X + β₂X² + ... + βₙXⁿ。
+    
+    **阶数选择**：
+    - 2阶（二次）：抛物线关系，如施肥量-产量的报酬递减
+    - 3阶（三次）：S形曲线关系
+    - 过高阶数（>4）容易过拟合，需谨慎
+    
+    **注意**：阶数越高模型越灵活，但也越容易过拟合。以调整R²和实际意义为参考。
+    """)
     
     col1, col2, col3 = st.columns(3)
     with col1: y_var = st.selectbox("因变量", numeric_cols, key="poly_y")
@@ -384,7 +495,7 @@ def polynomial_regression(df, numeric_cols):
         '标准误': model.bse,
         't值': model.tvalues,
         'p值': model.pvalues,
-        '显著性': model.pvalues.apply(lambda p: "***" if p<0.001 else "**" if p<0.01 else "*" if p<0.05 else "")
+        '显著性': pd.Series(model.pvalues).apply(lambda p: "***" if p<0.001 else "**" if p<0.01 else "*" if p<0.05 else "")
     })
     st.dataframe(coef_tab.set_index('项').round(4))
     
@@ -401,28 +512,192 @@ def polynomial_regression(df, numeric_cols):
                             name=f'{degree}阶拟合', line=dict(color='red', width=3)))
     
     fig.update_layout(title=f'{y_var} vs {x_var} - {degree}阶多项式回归 (R²={r_sq:.4f})',
-                     xaxis_title=x_var, yaxis_title=y_var, height=500)
-    st.plotly_chart(fig, use_container_width=True)
+                     xaxis_title=x_var, yaxis_title=y_var, height=500,
+                     legend_title_text=None)
+    st.plotly_chart(fig, width="stretch")
+
+
+
+def logistic_regression(df, numeric_cols):
+    """Logistic 二分类回归"""
+    st.markdown("### 📊 Logistic回归（二分类）")
+    
+    st.info("""
+    **Logistic回归**用于因变量为二分类时的建模和预测。
+    
+    **数据要求**：因变量为二分类（0/1、是/否、发病/不发病等） + ≥1个自变量。
+    
+    **模型**：log(p/(1-p)) = β₀ + β₁X₁ + ... + βₙXₙ（对数 odds 模型）。
+    
+    **关键指标**：
+    - **伪R² (McFadden)**：模型拟合优度（低于线性回归的R²）
+    - **OR (odds ratio)**：发生比，OR>1风险增加，OR<1风险降低
+    - **AUC**：模型判别能力，0.5=随机，1=完美
+    
+    **输出**：系数表(含OR值)、混淆矩阵、灵敏度/特异度、ROC曲线。
+    """)
+    
+    y_var = st.selectbox("因变量 (Y，二分类)", numeric_cols, key="logit_y")
+    x_vars = st.multiselect(
+        "选择自变量 (X)",
+        [c for c in numeric_cols if c != y_var],
+        key="logit_x"
+    )
+    
+    if len(x_vars) < 1:
+        st.warning("请至少选择一个自变量")
+        return
+    
+    # 准备数据
+    clean = df[[y_var] + x_vars].dropna()
+    unique_y = sorted(clean[y_var].unique())
+    
+    # 检查因变量是否为二分类
+    if len(unique_y) != 2:
+        st.warning(f"因变量「{y_var}」有 {len(unique_y)} 个唯一值：{unique_y}，Logistic回归需要恰好 2 个类别")
+        return
+    
+    # 将因变量映射为 0/1
+    y_map = {unique_y[0]: 0, unique_y[1]: 1}
+    y = clean[y_var].map(y_map).astype(float)
+    X = _get_sm().add_constant(clean[x_vars])
+    
+    # 拟合模型
+    try:
+        model = _get_sm().Logit(y, X).fit(disp=0, maxiter=100)
+    except Exception as e:
+        st.error(f"模型拟合失败: {e}")
+        return
+    
+    # 模型摘要
+    st.markdown("#### 模型摘要")
+    
+    m1, m2, m3 = st.columns(3)
+    with m1: st.metric("伪R² (McFadden)", f"{model.prsquared:.4f}")
+    with m2: st.metric("对数似然", f"{model.llf:.2f}")
+    with m3: st.metric("AIC", f"{model.aic:.2f}")
+    
+    st.markdown(f"*因变量映射: {unique_y[0]} → 0, {unique_y[1]} → 1*")
+    
+    # 系数表
+    tab_coef, tab_pred = st.tabs(["系数表", "预测与评估"])
+    
+    with tab_coef:
+        coef_df = pd.DataFrame({
+            '系数': model.params,
+            '标准误': model.bse,
+            'z值': model.tvalues,
+            'p值': model.pvalues,
+            'OR (exp(β))': np.exp(model.params),
+            'OR 95%CI下': np.exp(model.conf_int()[0]),
+            'OR 95%CI上': np.exp(model.conf_int()[1]),
+            '显著性': pd.Series(model.pvalues).apply(
+                lambda p: "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
+            )
+        })
+        st.dataframe(coef_df.round(4), width="stretch")
+        st.caption("OR > 1 表示正相关风险增加，OR < 1 表示负相关风险降低")
+    
+    with tab_pred:
+        # 预测概率
+        y_pred_prob = model.predict(X)
+        y_pred = (y_pred_prob >= 0.5).astype(int)
+        
+        # 混淆矩阵
+        from sklearn.metrics import confusion_matrix, classification_report, roc_auc_score
+        cm = confusion_matrix(y, y_pred)
+        
+        st.markdown("**混淆矩阵**")
+        cm_df = pd.DataFrame(
+            cm,
+            index=[f"实际{unique_y[0]}", f"实际{unique_y[1]}"],
+            columns=[f"预测{unique_y[0]}", f"预测{unique_y[1]}"]
+        )
+        st.dataframe(cm_df, width="stretch")
+        
+        # 准确率等指标
+        tn, fp, fn, tp = cm.ravel()
+        acc = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
+        sens = tp / (tp + fn) if (tp + fn) > 0 else 0  # 灵敏度/召回率
+        spec = tn / (tn + fp) if (tn + fp) > 0 else 0  # 特异度
+        
+        i1, i2, i3, i4 = st.columns(4)
+        with i1: st.metric("准确率", f"{acc:.2%}")
+        with i2: st.metric("灵敏度", f"{sens:.2%}")
+        with i3: st.metric("特异度", f"{spec:.2%}")
+        with i4:
+            try:
+                auc = roc_auc_score(y, y_pred_prob)
+                st.metric("AUC", f"{auc:.4f}")
+            except Exception:
+                st.metric("AUC", "N/A")
+        
+        # ROC 曲线
+        try:
+            fpr, tpr, _ = stats.roc_curve(y, y_pred_prob)
+            fig_roc = go.Figure()
+            fig_roc.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name='ROC曲线',
+                                         line=dict(color='blue', width=2)))
+            fig_roc.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines',
+                                         line_dash='dash', name='随机基线',
+                                         line=dict(color='gray')))
+            auc_val = roc_auc_score(y, y_pred_prob)
+            fig_roc.update_layout(
+                title=f"ROC曲线 (AUC = {auc_val:.4f})",
+                xaxis_title="假阳性率 (1-特异度)",
+                yaxis_title="灵敏度",
+                height=400,
+                xaxis=dict(scaleanchor="y", scaleratio=1)
+            )
+            st.plotly_chart(fig_roc, width="stretch")
+        except Exception:
+            pass
 
 
 def stepwise_regression(df, numeric_cols):
-    st.markdown("### 🔄 逐步回归 (Stepwise Selection)")
+    st.markdown("### 🔄 逐步回归")
+    
+    st.info("""
+    **逐步回归**通过自动筛选过程，从多个候选变量中选出最优变量子集。
+    
+    **数据要求**：1个因变量(Y) + 多个候选自变量(X)。
+    
+    **三种筛选方向**：
+    - **向前选择**：从无变量开始，逐步加入显著的变量
+    - **向后消除**：从全部变量开始，逐步剔除不显著的变量
+    - **双向逐步**（推荐）：每步既可加入也可剔除，综合前两种优点
+    
+    **参数说明**：
+    - **进入阈值(α)**：变量被选入的标准，默认0.05
+    - **剔除阈值(α)**：变量被移出的标准，默认0.10
+    
+    **输出**：入选变量列表、筛选过程历史、最终模型系数表。
+    """)
     
     y_var = st.selectbox("因变量 (Y)", numeric_cols, key="step_y")
-    candidates = [c for c in numeric_cols if c != y_var]
+    candidates = st.multiselect(
+        "候选自变量 (X)", 
+        [c for c in numeric_cols if c != y_var],
+        default=[c for c in numeric_cols if c != y_var]
+    )
     
-    method = st.radio("筛选方向", ["向前选择 (Forward)", "向后消除 (Backward)", "双向逐步"], horizontal=True)
-    alpha_enter = st.number_input("进入阈值 (α_entry)", value=0.05, min_value=0.001, max_value=0.5)
-    alpha_exit = st.number_input("剔除阈值 (α_exit)", value=0.10, min_value=0.001, max_value=0.5)
+    method = st.radio("筛选方向", ["向前选择", "向后消除", "双向逐步"], horizontal=True)
+    alpha_enter = st.number_input("进入阈值 (α)", value=0.05, min_value=0.001, max_value=0.5)
+    alpha_exit = st.number_input("剔除阈值 (α)", value=0.10, min_value=0.001, max_value=0.5)
+    
+    if len(candidates) < 1:
+        st.warning("请至少选择一个候选自变量")
+        return
     
     if st.button("执行逐步回归"):
-        selected, results_history = perform_stepwise(df, y_var, candidates, 
+        selected, results_history, best_var, best_p = perform_stepwise(df, y_var, tuple(candidates), 
                                                      method, alpha_enter, alpha_exit)
         
         if selected:
             # 最终模型
-            final_X = _get_sm().add_constant(df[selected].dropna())
-            final_y = df[y_var].loc[final_X.index]
+            clean = df[[y_var] + selected].dropna()
+            final_X = _get_sm().add_constant(clean[selected])
+            final_y = clean[y_var]
             final_model = _get_sm().OLS(final_y, final_X).fit()
             
             st.markdown("#### 最终模型结果")
@@ -438,16 +713,19 @@ def stepwise_regression(df, numeric_cols):
             if results_history:
                 hist_df = pd.DataFrame(results_history)
                 st.markdown("#### 变量筛选过程")
-                st.dataframe(hist_df, use_container_width=True)
+                st.dataframe(hist_df, width="stretch")
             
             # 系数表
             coef_df_final = _get_summary_table(final_model, table_idx=1)
             if isinstance(coef_df_final, pd.DataFrame):
-                st.dataframe(coef_df_final, use_container_width=True)
+                st.dataframe(coef_df_final, width="stretch")
             else:
-                st.dataframe(coef_df_final, use_container_width=True)
+                st.dataframe(coef_df_final, width="stretch")
         else:
-            st.warning("没有变量被选中")
+            if best_var:
+                st.warning(f"没有变量被选中（最佳候选：{best_var}，p={best_p:.4f} > α={alpha_enter}）。可尝试：\n- 降低进入阈值 α\n- 检查自变量与因变量的线性关系\n- 增加样本量")
+            else:
+                st.warning("无法完成逐步回归，请检查数据是否存在缺失值过多等问题")
 
 
 # ========== 辅助函数 ==========
@@ -457,9 +735,9 @@ def display_anova_ml_table(table):
     disp = table.copy().round(4)
     disp['SS%'] = (disp['sum_sq'] / disp['sum_sq'].sum() * 100).round(1)
     disp.rename(columns={
-        'sum_sq': 'SS', 'df': 'df', 'F': 'F值', 'PR(>F)': 'p'
+        'sum_sq': '平方和', 'df': '自由度', 'F': 'F值', 'PR(>F)': 'p值'
     }, inplace=True)
-    st.dataframe(disp, use_container_width=True)
+    st.dataframe(disp, width="stretch")
 
 
 def calculate_standardized_coefficients(model, x_vars):
@@ -475,37 +753,44 @@ def calculate_standardized_coefficients(model, x_vars):
         '原始系数': coefs.values,
         '标准化系数(Beta)': betas,
         '绝对|Beta|排序': rankdata([-abs(b) for b in betas], method='ordinal')  # type: ignore
-    }).sort_values('|Beta|', ascending=False)
+    }).sort_values('标准化系数(Beta)', key=lambda c: c.abs(), ascending=False)
 
 from scipy.stats import rankdata
 
 
+@st.cache_data
 def perform_stepwise(df, y_var, candidates, method, alpha_enter, alpha_exit):
     """
-    执行逐步回归算法
-    
-    Returns:
+    执行逐步回归算法（缓存：相同输入参数命中缓存）
+
+    Args:
+        candidates: 必须为 tuple，确保可 hash
         selected: 选中的变量列表
         history: 筛选过程记录
     """
     selected = []
     remaining = list(candidates)
     history = []
+    best_overall_p = 1.0
+    best_overall_var = None
     
     def fit_and_score(vars_list):
         if not vars_list:
             return None, float('inf'), None
-        X = _get_sm().add_constant(df[vars_list].dropna())
-        y = df[y_var].loc[X.index]
+        clean = df[[y_var] + list(vars_list)].dropna()
+        if len(clean) <= len(vars_list) + 1:
+            return None, float('inf'), None
+        y = clean[y_var]
+        X = _get_sm().add_constant(clean[vars_list])
         model = _get_sm().OLS(y, X).fit()
-        return model, model.aic, model.pvars[1:]  # type: ignore
+        return model, model.aic, model.pvalues[1:]
     
     max_iter = min(len(candidates), 20)
     
     for iteration in range(max_iter):
         changed = False
         
-        if method in ["向前选择 (Forward)", "双向逐步"]:
+        if method in ["向前选择", "双向逐步"]:
             # 尝试加入新变量
             best_p_enter = 1.0
             best_var_enter = None
@@ -519,6 +804,10 @@ def perform_stepwise(df, y_var, candidates, method, alpha_enter, alpha_exit):
                         best_p_enter = p_val
                         best_var_enter = var
             
+            if best_var_enter and best_p_enter < best_overall_p:
+                best_overall_p = best_p_enter
+                best_overall_var = best_var_enter
+            
             if best_var_enter and best_p_enter < alpha_enter:
                 selected.append(best_var_enter)
                 remaining.remove(best_var_enter)
@@ -531,7 +820,7 @@ def perform_stepwise(df, y_var, candidates, method, alpha_enter, alpha_exit):
                 })
                 changed = True
         
-        if method in ["向后消除 (Backward)", "双向逐步"] and len(selected) > 1:
+        if method in ["向后消除", "双向逐步"] and len(selected) > 1:
             # 尝试移除变量
             model, _, pvals = fit_and_score(selected)
             worst_p = -1
@@ -559,62 +848,8 @@ def perform_stepwise(df, y_var, candidates, method, alpha_enter, alpha_exit):
         if not changed:
             break
     
-    return selected, history
+    return selected, history, best_overall_var, best_overall_p
 
 
 if __name__ == "__main__":
     render_regression()
-
-
-# ========== 兼容性辅助函数 ==========
-
-def _get_summary_table(model, table_idx=1):
-    """获取模型summary表格，兼容不同版本的statsmodels
-    
-    Args:
-        model: 拟合的statsmodels模型
-        table_idx: 表格索引 (0=整体信息, 1=系数表)
-        
-    Returns:
-        DataFrame 或 SimpleTable对象
-    """
-    try:
-        # 新版 statsmodels (0.14+): 使用 summary_df 或 summary().tables
-        # 尝试直接从模型获取DataFrame
-        if hasattr(model, 'summary_frame') and table_idx == 1:
-            return model.summary_frame()
-        
-        # 尝试 pvalues 和 params 构建系数表
-        if table_idx == 1:
-            import warnings
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                coef_df = pd.DataFrame({
-                    '': model.params.index,
-                    'coef': model.params.values,
-                    'std err': model.bse.values,
-                    't': model.tvalues.values,
-                    'P>|t|': model.pvalues.values,
-                    '[0.025': model.conf_int()[0].values,
-                    '0.975]': model.conf_int()[1].values
-                }).set_index('')
-                return coef_df
-        
-        return model.summary().tables[table_idx]
-        
-    except Exception:
-        # 回退到旧版方式
-        try:
-            return model.summary().tables[table_idx]
-        except (AttributeError, IndexError):
-            # 最后回退：手动构建
-            if table_idx == 1:
-                coef_df = pd.DataFrame({
-                    '': model.params.index.tolist(),
-                    'coef': model.params.values,
-                    'std err': getattr(model, 'bse', [np.nan]*len(model.params)).values if hasattr(model.bse, '__iter__') else model.bse,
-                    't': model.tvalues.values if hasattr(model, 'tvalues') else [np.nan]*len(model.params),
-                    'P>|t|': model.pvalues.values,
-                })
-                return coef_df.set_index('')
-            raise

@@ -7,8 +7,10 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils.data_manager import get_data_manager
+from utils.data_manager import get_current_dm
 from utils.styles import inject_css
+from utils.visitor_logger import log_visit
+from billing.billing import require_auth
 
 # 延迟导入：plotly 和 scipy 体积较大，按需加载
 def _get_px():
@@ -25,8 +27,11 @@ def _get_stats():
 
 
 def render_descriptive_stats():
+    require_auth()
+    log_visit("描述统计")
     inject_css()
     st.markdown('<div class="section-header">📈 描述统计分析</div>', unsafe_allow_html=True)
+
     
     # 功能简介下拉菜单
     with st.expander("📖 功能简介", expanded=False):
@@ -43,14 +48,15 @@ def render_descriptive_stats():
         **使用建议**：分析前先做描述统计，了解数据基本情况。CV%（变异系数）是田间试验最常用的指标之一。
         """)
     
-    dm = get_data_manager()
+    dm = get_current_dm()
     
     if not dm.is_loaded:
-        st.warning("⚠️ 请先上传数据文件")
+        st.warning("⚠️ 请从首页上传数据")
         return
     
     df = dm.data
-    numeric_cols = dm.get_numeric_columns()
+    numeric_cols = dm.get_pure_numeric_columns()
+    all_categorical = dm.get_all_categorical_columns()
     
     if not numeric_cols:
         st.warning("⚠️ 数据中没有数值型列")
@@ -66,7 +72,7 @@ def render_descriptive_stats():
     
     group_col = st.selectbox(
         "选择分组变量（可选）",
-        options=["无"] + dm.get_categorical_columns()
+        options=["无"] + all_categorical
     )
     
     if not selected_cols:
@@ -78,7 +84,11 @@ def render_descriptive_stats():
 
     _stats = _get_stats()
     
-    desc_df = df[selected_cols].describe().T
+    desc_df = df[selected_cols].describe().T.rename(columns={
+        'count': '样本数', 'mean': '均值', 'std': '标准差',
+        'min': '最小值', '25%': '下四分位(25%)', '50%': '中位数',
+        '75%': '上四分位(75%)', 'max': '最大值'
+    })
     # 添加额外统计量
     extra_stats = []
     for col in selected_cols:
@@ -102,10 +112,10 @@ def render_descriptive_stats():
     tab1, tab2, tab3 = st.tabs(["基础统计", "完整统计量", "详细报告"])
     
     with tab1:
-        st.dataframe(desc_df.style.background_gradient(cmap='Blues'), use_container_width=True)
+        st.dataframe(desc_df.style.background_gradient(cmap='Blues'), width="stretch")
     
     with tab2:
-        st.dataframe(extra_df.round(4).style.background_gradient(cmap='Greens'), use_container_width=True)
+        st.dataframe(extra_df.round(4).style.background_gradient(cmap='Greens'), width="stretch")
     
     with tab3:
         for col in selected_cols:
@@ -124,18 +134,27 @@ def render_descriptive_stats():
         st.markdown(f"### 📊 按 **{group_col}** 分组统计")
         
         grouped = df.groupby(group_col)[selected_cols].agg(['count', 'mean', 'std', 'min', 'max'])
-        st.dataframe(grouped.round(4), use_container_width=True)
+        col_rename = {'count': '样本数', 'mean': '均值', 'std': '标准差', 'min': '最小值', 'max': '最大值'}
+        # 将 MultiIndex 元组列名合并为扁平字符串，如 ('产量', '样本数') → '产量样本数'
+        grouped.columns = [f"{col}{col_rename[stat]}" for col, stat in grouped.columns]
+        st.dataframe(grouped.round(4), width="stretch")
         
-        # 分组箱线图
+        # 分组箱线图（X轴按Y中位数降序排列）
         st.markdown("#### 分组箱线图")
         px = _get_px()
+        melt_df = df.melt(id_vars=[group_col], value_vars=selected_cols,
+                          var_name='变量', value_name='值')
+        median_order = melt_df.groupby(group_col)['值'].median().sort_values(ascending=False)
+        cat_order = median_order.index.tolist()
         fig_box = px.box(
-            df.melt(id_vars=[group_col], value_vars=selected_cols, 
-                    var_name='变量', value_name='值'),
+            melt_df,
             x=group_col, y='值', color='变量',
             title=f'按{group_col}分组的箱线图'
         )
-        st.plotly_chart(fig_box, use_container_width=True)
+        fig_box.update_layout(legend_title_text=None)
+        if cat_order:
+            fig_box.update_xaxes(categoryorder='array', categoryarray=cat_order)
+        st.plotly_chart(fig_box, width="stretch")
     
     # 可视化
     st.markdown("---")
@@ -166,12 +185,12 @@ def render_descriptive_stats():
                 fig = px.histogram(df, x=col, nbins=30, marginal="box",
                                    title=f'{col} 分布直方图')
                 fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
             elif chart_type == "箱线图":
                 fig = px.box(df, y=col, title=f'{col} 箱线图',
                             points="outliers")
                 fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
         
         with c_qq:
             # QQ图（正态性检验可视化）
@@ -189,7 +208,7 @@ def render_descriptive_stats():
             fig_qq.update_layout(title=f'{col} QQ图 (正态性检验)',
                                 height=400, xaxis_title='理论分位数',
                                 yaxis_title='样本分位数')
-            st.plotly_chart(fig_qq, use_container_width=True)
+            st.plotly_chart(fig_qq, width="stretch")
     
     # 相关性矩阵
     if len(selected_cols) > 1:
@@ -206,7 +225,7 @@ def render_descriptive_stats():
             title='相关系数热力图'
         )
         fig_corr.update_layout(height=500)
-        st.plotly_chart(fig_corr, use_container_width=True)
+        st.plotly_chart(fig_corr, width="stretch")
 
 
 def mode(arr):
@@ -215,7 +234,7 @@ def mode(arr):
         from scipy import stats
         result = stats.mode(arr, keepdims=True)
         return result.mode[0]
-    except:
+    except Exception:
         return arr.mode()[0]
 
 

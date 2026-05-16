@@ -1,14 +1,14 @@
-# 数据管理模块 - 全局数据持久化与共享
+# 数据管理模块 - 按 user_id 隔离的数据持久化与共享
 
 import os
+import shutil
 import streamlit as st
 import pandas as pd
 import numpy as np
 from io import BytesIO
 
-# 全局数据缓存路径
-CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp_plots")
-CACHE_FILE = os.path.join(CACHE_DIR, "_global_data_cache.parquet")
+# 数据缓存根目录
+_CACHE_ROOT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp_plots")
 
 
 def _detect_encoding(file_obj) -> str:
@@ -17,7 +17,7 @@ def _detect_encoding(file_obj) -> str:
     优先尝试 UTF-8, 然后尝试 GBK/GB2312 (中文Windows常见),
     最后尝试 Latin-1 (兼容性最强)
     """
-    encodings_to_try = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']
+    encodings_to_try = ['utf-8-sig', 'utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']
     
     # 如果是文件路径
     if isinstance(file_obj, str):
@@ -76,50 +76,72 @@ def _read_csv_with_encoding(file_obj, encoding=None):
         raise e
 
 @st.cache_resource
-def get_data_manager():
-    """获取全局数据管理器（单例模式）"""
-    return DataManager()
+def get_data_manager(user_id: int):
+    """获取指定用户的数据管理器（按 user_id 隔离）"""
+    return DataManager(user_id)
+
+# 便捷函数：自动获取当前登录用户的 DataManager
+def get_current_dm() -> 'DataManager':
+    """获取当前登录用户的数据管理器（便捷函数）"""
+    from billing.auth import get_current_user
+    user = get_current_user()
+    if not user:
+        raise RuntimeError("用户未登录，无法获取数据管理器")
+    return get_data_manager(user['id'])
+
 
 class DataManager:
-    """全局数据管理器，负责数据的持久化和跨页面共享"""
-    
-    def __init__(self):
+    """按用户隔离的数据管理器，每个用户有独立的缓存文件"""
+
+    def __init__(self, user_id: int):
+        self._user_id = user_id
         self._data = None
         self._filename = None
+        # 每个用户独立目录：temp_plots/user_{id}/
+        self._cache_dir = os.path.join(_CACHE_ROOT, f"user_{user_id}")
+        self._cache_file = os.path.join(self._cache_dir, "data.parquet")
+        self._name_file = os.path.join(self._cache_dir, "data.name")
         self._load_from_disk()
-    
+
+    @property
+    def user_id(self) -> int:
+        return self._user_id
+
     def _load_from_disk(self):
         """从磁盘加载数据缓存"""
         try:
-            if os.path.exists(CACHE_FILE):
-                self._data = pd.read_parquet(CACHE_FILE)
-                # 尝试读取文件名信息
-                name_file = CACHE_FILE + ".name"
-                if os.path.exists(name_file):
-                    with open(name_file, 'r', encoding='utf-8') as f:
+            if os.path.exists(self._cache_file):
+                self._data = pd.read_parquet(self._cache_file)
+                if os.path.exists(self._name_file):
+                    with open(self._name_file, 'r', encoding='utf-8') as f:
                         self._filename = f.read().strip()
         except Exception as e:
-            print(f"加载缓存失败: {e}")
+            print(f"用户 {self._user_id} 加载数据缓存失败: {e}")
             self._data = None
-    
+
     def _save_to_disk(self):
         """将数据持久化到磁盘"""
         try:
-            os.makedirs(CACHE_DIR, exist_ok=True)
+            os.makedirs(self._cache_dir, exist_ok=True)
             if self._data is not None:
-                self._data.to_parquet(CACHE_FILE, index=False)
-                # 保存文件名
-                name_file = CACHE_FILE + ".name"
+                self._data.to_parquet(self._cache_file, index=False)
                 if self._filename:
-                    with open(name_file, 'w', encoding='utf-8') as f:
+                    with open(self._name_file, 'w', encoding='utf-8') as f:
                         f.write(self._filename)
-            elif os.path.exists(CACHE_FILE):
-                os.remove(CACHE_FILE)
-                name_file = CACHE_FILE + ".name"
-                if os.path.exists(name_file):
-                    os.remove(name_file)
+            elif os.path.exists(self._cache_file):
+                os.remove(self._cache_file)
+                if os.path.exists(self._name_file):
+                    os.remove(self._name_file)
         except Exception as e:
-            print(f"保存缓存失败: {e}")
+            print(f"用户 {self._user_id} 保存数据缓存失败: {e}")
+
+    def clear_cache_files(self):
+        """清除磁盘上的缓存文件（退出登录时调用）"""
+        try:
+            if os.path.exists(self._cache_dir):
+                shutil.rmtree(self._cache_dir)
+        except Exception as e:
+            print(f"用户 {self._user_id} 清除缓存文件失败: {e}")
     
     @property
     def data(self) -> pd.DataFrame | None:
@@ -203,6 +225,30 @@ class DataManager:
         if self._data is not None:
             return list(self._data.select_dtypes(include=['object', 'category']).columns)
         return []
+
+    def get_all_categorical_columns(self) -> list:
+        """获取所有分类型列名列表，包括数字型分类变量（如区组1,2,3...）
+
+        数字型分类变量判定标准：
+        - 所有值都是整数
+        - 唯一值数量 >= 2
+        """
+        if self._data is None:
+            return []
+        base_cat = list(self._data.select_dtypes(include=['object', 'category']).columns)
+        numeric_cats = []
+        for col in self._data.select_dtypes(include=[np.number]).columns:
+            uv = self._data[col].dropna().unique()
+            if len(uv) >= 2 and all(float(v).is_integer() for v in uv):
+                numeric_cats.append(col)
+        return base_cat + numeric_cats
+
+    def get_pure_numeric_columns(self) -> list:
+        """获取纯数值型列名列表（排除数字型分类变量）"""
+        if self._data is None:
+            return []
+        all_cat = set(self.get_all_categorical_columns())
+        return [c for c in self._data.select_dtypes(include=[np.number]).columns if c not in all_cat]
     
     def preview(self, n_rows: int = 10) -> pd.DataFrame | None:
         """预览前n行数据"""
@@ -228,133 +274,142 @@ class DataManager:
         }
 
 
-def render_data_manager():
-    """渲染全局数据管理组件（在所有页面显示）"""
+def _clear_analysis_keys():
+    """上传新数据后清除各分析页面缓存的参数 key，避免旧列名与新数据不匹配"""
+    prefixes = (
+        'crd_', 'rcbd_', 'latin_', 'split_', 'factorial_',
+        'met_', 'alpha_', 'augmented_', 'interval_',
+        'desc_', 'hyp_', 'reg_', 'multi_', 'vis_', 'exp_',
+        'dm_example',
+    )
+    keys_to_remove = [k for k in list(st.session_state.keys())
+                      if k.startswith(prefixes)]
+    for k in keys_to_remove:
+        del st.session_state[k]
+
+
+def render_data_manager(expanded=None):
+    """渲染数据管理组件
+
+    Args:
+        expanded: None=不折叠模式，True/False=控制expander状态
+                  如为None则不使用expander，直接展示全部内容
+    """
+
+    dm = get_current_dm()
+    uploader_key = '_file_uploader'
     
-    dm = get_data_manager()
+    # 使用 expander 或直接展示
+    container = st.expander("📁 **数据管理**",
+        expanded=(expanded if expanded is not None else not dm.is_loaded)) if expanded is not None else st.container()
     
-    with st.expander("📁 **数据管理**", expanded=not dm.is_loaded):
+    with container:
         col1, col2 = st.columns([1, 1])
+        
+        # ── 第一行：上传 | 示例数据 ──
+        def _on_upload_change():
+            """文件上传变化时自动加载新数据"""
+            files = st.session_state.get(uploader_key)
+            if files:
+                f = files[-1] if isinstance(files, list) else files
+                try:
+                    dm.load_data(f, f.name)
+                    st.session_state['_data_just_loaded'] = True
+                except Exception as e:
+                    st.session_state['_upload_error'] = str(e)
         
         with col1:
             uploaded_file = st.file_uploader(
-                "上传数据文件 (CSV/Excel)",
+                "**上传数据文件**",
                 type=['csv', 'xlsx', 'xls'],
-                help="支持CSV和Excel格式的数据文件"
+                help="支持CSV和Excel格式的数据文件",
+                key=uploader_key,
+                on_change=_on_upload_change
             )
-            
-            if uploaded_file is not None:
-                try:
-                    dm.load_data(uploaded_file, uploaded_file.name)
-                    st.success(f"✅ 已加载: {uploaded_file.name} ({dm.summary()['rows']} 行 × {dm.summary()['cols']} 列)")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ 加载失败: {e}")
+        
+        # 显示上传结果或错误
+        if st.session_state.get('_data_just_loaded'):
+            st.session_state.pop('_data_just_loaded', None)
+            st.success(f"✅ 已加载: {dm.filename} ({dm.summary()['rows']} 行 × {dm.summary()['cols']} 列)")
+        if st.session_state.get('_upload_error'):
+            err = st.session_state.pop('_upload_error', None)
+            st.error(f"❌ 加载失败: {err}")
         
         with col2:
-            if dm.is_loaded:
-                st.markdown("**当前数据**")
-                st.info(f"📄 {dm.filename}\n\n{dm.summary()['rows']} 行 × {dm.summary()['cols']} 列")
-                
-                if st.button("🗑️ 清除数据", use_container_width=True):
-                    dm.clear_data()
-                    st.rerun()
-            
-            # 示例数据选择
-            st.markdown("---")
-            st.markdown("**快速开始**")
+            st.markdown("**选择示例数据**")
             example_option = st.selectbox(
                 "选择示例数据",
-                ["随机区组数据", "MET试验"],
-                label_visibility="collapsed"
+                [
+                    "完全随机设计",
+                    "随机完全区组设计",
+                    "拉丁方设计",
+                    "裂区设计",
+                    "两因素析因设计",
+                    "MET多点试验",
+                    "区试试验",
+                    "Alpha不完全区组设计",
+                    "增广设计",
+                    "间比设计",
+                ],
+                label_visibility="collapsed",
+                key="dm_example"
             )
-            if st.button("📥 加载示例数据", use_container_width=True):
+            if st.button("📥 加载示例数据", width="stretch"):
                 create_example_data(dm, example_option)
-                st.rerun()
+                st.success("✅ 示例数据已加载，请选择分析模块。")
+        
+        # ── 第二行：当前数据 | 数据操作 ──
+        col3, col4 = st.columns([1, 1])
+        with col3:
+            if dm.is_loaded:
+                st.markdown("""\
+                <div style="border:1px solid #e2e8f0;border-radius:0.75rem;padding:1rem;background:#f8fafc;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+                        <span style="font-size:1.25rem;">📄</span>
+                        <span style="font-weight:600;font-size:0.95rem;color:#1e293b;">当前数据</span>
+                    </div>
+                    <div style="font-size:0.85rem;color:#64748b;word-break:break-all;">{filename}</div>
+                </div>
+                """.format(filename=dm.filename or "未命名"), unsafe_allow_html=True)
+        with col4:
+            if dm.is_loaded:
+                csv_bytes = dm.data.to_csv(index=False).encode('utf-8-sig')
+                base_name = os.path.splitext(dm.filename)[0] if dm.filename else "数据"
+                if st.button("🗑️ 清除数据", width="stretch"):
+                    dm.clear_data()
+                    st.rerun()
+                st.download_button(
+                    label="💾 下载数据",
+                    data=csv_bytes,
+                    file_name=f"{base_name}.csv",
+                    mime="text/csv",
+                    width="stretch"
+                )
     
     # 显示数据预览（如果有数据）
     if dm.is_loaded:
         with st.container():
             st.markdown("### 📋 数据预览")
-            preview_df = dm.preview(8)
-            if preview_df is not None:
-                st.dataframe(preview_df, use_container_width=True)
-                
-                # 数据摘要
-                sum_col1, sum_col2, sum_col3, sum_col4 = st.columns(4)
-                with sum_col1:
-                    st.metric("行数", dm.summary()["rows"])
-                with sum_col2:
-                    st.metric("列数", dm.summary()["cols"])
-                with sum_col3:
-                    st.metric("数值列", dm.summary()["numeric_cols"])
-                with sum_col4:
-                    st.metric("缺失值", dm.summary()["missing_values"])
+            
+            # 数据摘要（在表格上方）
+            sum_col1, sum_col2, sum_col3, sum_col4 = st.columns(4)
+            with sum_col1:
+                st.metric("行数", dm.summary()["rows"])
+            with sum_col2:
+                st.metric("列数", dm.summary()["cols"])
+            with sum_col3:
+                st.metric("数值列", dm.summary()["numeric_cols"])
+            with sum_col4:
+                st.metric("缺失值", dm.summary()["missing_values"])
+            
+            # 数据表格（在摘要下方）
+            if dm.data is not None:
+                st.dataframe(dm.data, width="stretch")
 
 
 def render_data_manager_expanded():
-    """渲染全局数据管理组件（直接展开，无折叠）"""
-    
-    dm = get_data_manager()
-    
-    st.markdown("### 📁 数据管理")
-    
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        uploaded_file = st.file_uploader(
-            "上传数据文件 (CSV/Excel)",
-            type=['csv', 'xlsx', 'xls'],
-            help="支持CSV和Excel格式的数据文件"
-        )
-        
-        if uploaded_file is not None:
-            try:
-                dm.load_data(uploaded_file, uploaded_file.name)
-                st.success(f"✅ 已加载: {uploaded_file.name} ({dm.summary()['rows']} 行 × {dm.summary()['cols']} 列)")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ 加载失败: {e}")
-    
-    with col2:
-        if dm.is_loaded:
-            st.markdown("**当前数据**")
-            st.info(f"📄 {dm.filename}\n\n{dm.summary()['rows']} 行 × {dm.summary()['cols']} 列")
-            
-            if st.button("🗑️ 清除数据", use_container_width=True):
-                dm.clear_data()
-                st.rerun()
-        
-        # 示例数据选择
-        st.markdown("---")
-        st.markdown("**快速开始**")
-        example_option = st.selectbox(
-            "选择示例数据",
-            ["随机区组数据", "MET试验"],
-            label_visibility="collapsed"
-        )
-        if st.button("📥 加载示例数据", use_container_width=True):
-            create_example_data(dm, example_option)
-            st.rerun()
-    
-    # 显示数据预览（如果有数据）
-    if dm.is_loaded:
-        with st.container():
-            st.markdown("### 📋 数据预览")
-            preview_df = dm.preview(8)
-            if preview_df is not None:
-                st.dataframe(preview_df, use_container_width=True)
-                
-                # 数据摘要
-                sum_col1, sum_col2, sum_col3, sum_col4 = st.columns(4)
-                with sum_col1:
-                    st.metric("行数", dm.summary()["rows"])
-                with sum_col2:
-                    st.metric("列数", dm.summary()["cols"])
-                with sum_col3:
-                    st.metric("数值列", dm.summary()["numeric_cols"])
-                with sum_col4:
-                    st.metric("缺失值", dm.summary()["missing_values"])
+    """渲染全局数据管理组件（直接展开，无折叠）—— 委托给 render_data_manager"""
+    render_data_manager(expanded=True)
 
 
 def create_example_data(dm: DataManager, example_name: str = "随机区组数据"):
@@ -362,39 +417,18 @@ def create_example_data(dm: DataManager, example_name: str = "随机区组数据
     
     Args:
         dm: DataManager实例
-        example_name: 示例数据名称，可选 "随机区组数据" 或 "MET试验"
+        example_name: 示例数据名称
     """
-    if example_name == "MET试验":
-        # 从data目录加载MET多点试验数据
-        data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-        csv_path = os.path.join(data_dir, "MET试验.csv")
-        if os.path.exists(csv_path):
-            encoding = _detect_encoding(csv_path)
-            df = pd.read_csv(csv_path, encoding=encoding)
-            dm.set_data(df, "示例_MET试验.csv")
-        else:
-            st.error("示例数据文件不存在")
-        return
+    # 尝试从 data 目录加载 CSV 文件
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
     
-    # 默认：创建RCBD随机区组示例数据
-    np.random.seed(42)
-    treatments = ['品种A', '品种B', '品种C', '品种D']
-    blocks = ['区组I', '区组II', '区组III']
+    # 匹配CSV文件名：名称后加"示例数据"
+    csv_name = f"{example_name}示例数据.csv"
     
-    data = []
-    for treatment in treatments:
-        for block in blocks:
-            base_yield = {'品种A': 85, '品种B': 92, '品种C': 78, '品种D': 88}[treatment]
-            block_effect = {'区组I': 0, '区组II': -3, '区组III': 5}[block]
-            yield_val = base_yield + block_effect + np.random.normal(0, 5)
-            data.append({
-                '处理': treatment,
-                '区组': block,
-                '产量': round(yield_val, 2),
-                '株高': round(yield_val * 0.85 + np.random.normal(10, 3), 1),
-                '穗长': round(np.random.uniform(15, 25), 1),
-                '千粒重': round(np.random.uniform(35, 45), 1)
-            })
-    
-    df = pd.DataFrame(data)
-    dm.set_data(df, "示例_随机区组产量数据.csv")
+    csv_path = os.path.join(data_dir, csv_name)
+    if os.path.exists(csv_path):
+        encoding = _detect_encoding(csv_path)
+        df = pd.read_csv(csv_path, encoding=encoding)
+        dm.set_data(df, f"示例_{csv_name}")
+    else:
+        st.error(f"示例数据文件不存在: {csv_path}")

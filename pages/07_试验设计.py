@@ -12,8 +12,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from utils.data_manager import get_data_manager
-from utils.styles import inject_css
+from utils.styles import inject_css, inject_upload_i18n
+from utils.visitor_logger import log_visit
+from billing.billing import require_auth, check_billing, can_download
 
 
 def create_text_input_with_file_import(
@@ -46,22 +47,32 @@ def create_text_input_with_file_import(
     if text_key not in st.session_state:
         st.session_state[text_key] = default_value
     
+    _type = label.replace("（每行一个）", "").strip()
+    
+    # 文本输入框（使用 session_state 中的值）
+    value = st.text_area(
+        label,
+        height=height,
+        key=text_key,
+        placeholder=f"每行输入一个{_type}，或点击下方按钮导入文件"
+    )
+    
     # 文件导入按钮放在文本框下方，与文本框等宽
     st.markdown(
-        """
+        f"""
         <style>
-        [data-testid="stFileUploaderDropzone"] span {
+        [data-testid="stFileUploaderDropzone"] span {{
             display: none;
-        }
-        [data-testid="stFileUploaderDropzone"]::before {
-            content: "拖拽文件到此处，或点击选择文件（单文件限 200MB，支持 CSV/TXT）";
-        }
+        }}
+        [data-testid="stFileUploaderDropzone"]::before {{
+            content: f"拖拽或点击导入{_type}列表文件（支持 CSV/TXT）";
+        }}
         </style>
         """,
         unsafe_allow_html=True
     )
     uploaded_file = st.file_uploader(
-        "📁 导入文件（支持 CSV/TXT，每行一个名称）",
+        f"📁 导入{_type}列表文件；每行一个，没有表头",
         type=['csv', 'txt'],
         key=file_key,
         help="点击选择文件导入，文件编码建议 UTF-8 或 GBK"
@@ -115,19 +126,86 @@ def create_text_input_with_file_import(
         except Exception as e:
             st.error(f"导入失败：{str(e)}")
     
-    # 文本输入框（使用 session_state 中的值）
-    value = st.text_area(
-        label,
-        height=height,
-        key=text_key,
-        placeholder="每行输入一个名称，或点击下方按钮导入文件"
-    )
-    
     return value
 
 
+# ========== 通用小区号设置 ==========
+
+def plot_number_settings(has_environment: bool = False, key_prefix: str = ""):
+    """
+    通用小区号设置 UI 组件，返回设置字典。
+
+    参数:
+        has_environment: 是否显示"环境/试点间增量"（MET等多点试验用）
+        key_prefix: 控件 key 前缀，避免不同设计页面冲突
+
+    返回:
+        dict: {
+            'prefix': 前缀字符串,
+            'start': 起始数字,
+            'intra_block': 区组/重复内增量,
+            'inter_block': 区组/重复间增量,
+            'inter_env': 环境间增量 (0 表示无)
+        }
+    """
+    kp = f"pn_{key_prefix}" if key_prefix else "pn"
+    with st.expander("🔢 小区号设置", expanded=False):
+        c1, c2 = st.columns(2)
+        with c1:
+            pn_prefix = st.text_input("前缀", value="", key=f"{kp}_prefix",
+                                       help="小区号前缀，如 P、A 等，可为空")
+            pn_start = st.number_input("起始编号", min_value=0, max_value=9999, value=0,
+                                        key=f"{kp}_start", help="起始小区号的数字部分")
+        with c2:
+            pn_intra = st.number_input("区组/重复内增量", min_value=1, max_value=100, value=1,
+                                        key=f"{kp}_intra",
+                                        help="同一区组内，相邻处理的编号增量")
+            pn_inter = st.number_input("区组/重复间增量", min_value=0, max_value=9999, value=100,
+                                        key=f"{kp}_inter",
+                                        help="不同区组间的编号增量")
+        if has_environment:
+            pn_env = st.number_input("环境/试点间增量", min_value=0, max_value=99999, value=1000,
+                                      key=f"{kp}_env",
+                                      help="不同环境/试点间的编号增量")
+        else:
+            pn_env = 0
+
+    return {
+        'prefix': pn_prefix.strip(),
+        'start': pn_start,
+        'intra_block': pn_intra,
+        'inter_block': pn_inter,
+        'inter_env': pn_env,
+    }
+
+
+def calculate_plot_number(config: dict, rep_idx: int, treat_idx: int,
+                          env_idx: int = 0) -> str:
+    """
+    根据小区号设置计算最终小区号。
+
+    公式: 前缀 + 起始编号 + 环境间增量×环境序号 + 区组间增量×区组编号 + 区组内增量×处理序号
+
+    参数:
+        config: plot_number_settings() 返回的字典
+        rep_idx: 区组/重复编号（从 1 开始，不减1）
+        treat_idx: 处理在区组内的序号（从 1 开始，不减1）
+        env_idx: 环境/试点序号（从 1 开始，默认 0 表示单点试验）
+    """
+    num = config['start']
+    if env_idx > 0:
+        num += config['inter_env'] * env_idx
+    num += config['inter_block'] * rep_idx
+    num += config['intra_block'] * treat_idx
+    prefix = config['prefix']
+    return f"{prefix}{num}" if prefix else str(num)
+
+
 def render_experimental_design():
+    require_auth()
+    log_visit("试验设计")
     inject_css()
+    inject_upload_i18n()
     st.markdown('<div class="section-header">🌾 试验设计</div>', unsafe_allow_html=True)
     
     # 功能简介下拉菜单
@@ -152,27 +230,6 @@ def render_experimental_design():
         
         **随机化原则**：同一处理在田间不能连续出现在同一行/列，避免系统误差。
         """)
-        
-        st.markdown("""
-        <div class="method-guide">
-        <div class="method-guide-title">试验设计选择指南</div>
-        <div class="method-guide-content">
-        <b>按环境条件选择：</b><br>
-        - 环境均匀（温室/实验室）→ <b>CRD 完全随机设计</b><br>
-        - 存在单向梯度（如土壤肥力梯度）→ <b>RCBD 随机区组设计</b>（田间最常用）<br>
-        - 存在双向梯度 → <b>LSD 拉丁方设计</b><br><br>
-        <b>按处理因素选择：</b><br>
-        - 一个因素 → CRD/RCBD<br>
-        - 两个因素，精度要求不同 → <b>SPD 裂区设计</b><br>
-        - 两个因素，精度要求相同 → <b>SSD 条区设计</b><br><br>
-        <b>按试验规模选择：</b><br>
-        - 品种数≤10，常规区试 → RCBD<br>
-        - 品种数10-30，需要更高精度 → <b>Alpha设计</b><br>
-        - 品种数>30，初级筛选 → <b>增广设计</b> 或 <b>间比法</b><br>
-        - 多地点多年份 → <b>MET多点试验设计</b>
-        </div>
-        </div>
-        """, unsafe_allow_html=True)
     
     design_type = st.selectbox(
         "选择试验设计类型",
@@ -194,6 +251,10 @@ def render_experimental_design():
     )
     
     st.markdown("---")
+    
+    # 计费守卫：选择设计类型后检查并扣减次数
+    if design_type != "---":
+        check_billing("试验设计-" + design_type, {"design_type": design_type})
     
     if design_type == "---":
         st.info("👆 请从上方选择试验设计类型")
@@ -240,30 +301,49 @@ def render_experimental_design():
 def show_design_guide():
     """显示试验设计指南"""
     st.markdown("### 📚 试验设计选择指南")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("""
-        **按变异来源选择：**
-        - 环境均匀 → CRD
-        - 单向梯度（如土壤肥力梯度）→ RCBD
-        - 双向梯度 → LSD
-        - 两个因素精度要求不同 → SPD
-        """)
-    
-    with col2:
-        st.markdown("""
-        **按试验规模选择：**
-        - 小面积（<100小区）→ CRD/RCBD
-        - 中等面积（100-500小区）→ RCBD/LSD
-        - 大面积/多点 → MET设计
-        """)
+
+    st.markdown("""
+    **按环境条件选择：**
+    - 环境均匀（温室/实验室）→ **CRD 完全随机设计**
+    - 存在单向梯度（如土壤肥力梯度）→ **RCBD 随机区组设计**（田间最常用）
+    - 存在双向梯度 → **LSD 拉丁方设计**
+
+    **按处理因素选择：**
+    - 一个因素 → CRD/RCBD
+    - 两个因素，精度要求不同（主处理需大面积）→ **SPD 裂区设计**
+    - 两个因素，精度要求相同（两个因素都需大面积）→ **SSD 条区设计**
+
+    **按试验规模选择：**
+    - 品种数≤10，常规区试 → RCBD
+    - 品种数为完全平方数（如9、16、25），需要平衡比较 → **Lattice格子设计**
+    - 品种数10-30，需要更高精度 → **Alpha设计**
+    - 品种数>30，初级筛选 → **增广设计** 或 **间比法**
+    - 多点试验 → **MET多点试验设计**
+
+    **按排列方式选择：**
+    - 土壤单向梯度明显，希望处理沿梯度对角线分布 → **对角线设计**
+
+    **按比较方式选择：**
+    - 品种初筛、处理数多，对照间隔插入，用左右对照均值计算相对产量 → **间比法设计**
+    - 品种比较试验、示范展示，每个处理与相邻对照直接比较 → **对比法设计**
+    """)
 
 
 def crd_design():
     """完全随机设计"""
     st.markdown("### 🎲 完全随机设计 (CRD)")
+    
+    st.info("""
+    **完全随机设计**是最简单的田间试验设计。
+    
+    **适用场景**：试验单元间环境差异不大（温室、培养箱、实验室均匀田块）。
+    
+    **特点**：所有处理在全部重复中完全随机排列，不设区组。
+    
+    **输入**：处理名称列表 + 重复次数。
+    
+    **输出**：随机化排列结果表、田间排列可视化图。
+    """)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -282,6 +362,8 @@ def crd_design():
             seed = st.number_input("固定随机种子", min_value=1, max_value=9999, value=42)
         check_constraint = st.checkbox("确保同一处理在不同重复间不出现在同一位置", value=True)
     
+    pn_cfg = plot_number_settings(key_prefix="crd")
+    
     if st.button("生成设计方案", type="primary"):
         # 基于时钟生成随机种子
         if use_random_seed:
@@ -291,12 +373,20 @@ def crd_design():
         # 使用约束随机化生成
         df_design = generate_crd_with_constraint(treatment_list, n_reps, seed, check_constraint)
         
+        # 根据小区号设置重新计算
+        _pn_col = []
+        for _, row in df_design.iterrows():
+            _pn_col.append(calculate_plot_number(pn_cfg, rep_idx=int(row['重复']), treat_idx=int(row['位置'])))
+        df_design['小区号'] = _pn_col
+        if '排列序号' in df_design.columns:
+            df_design['排列序号'] = df_design['小区号']
+        
         # 显示结果
         st.success(f"✅ 已生成 {len(treatment_list)} 处理 × {n_reps} 重复 = {len(df_design)} 个小区")
         
         # 布局显示
         st.markdown("#### 📋 随机化排列结果")
-        st.dataframe(df_design[['排列序号', '处理', '重复']], use_container_width=True)
+        st.dataframe(df_design[['排列序号', '处理', '重复']], width="stretch")
         
         # 显示各重复的排列对比
         if check_constraint:
@@ -305,16 +395,32 @@ def crd_design():
         
         # 可视化
         fig = visualize_field_layout(df_design, f"CRD设计 - {len(treatment_list)}处理×{n_reps}重复")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         
         # 下载
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下载设计方案 (CSV)", csv, "CRD设计方案.csv", "text/csv")
+        if can_download():
+            st.download_button("📥 下载设计方案 (CSV)", csv, "CRD设计方案.csv", "text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
 
 
 def rcbd_design():
     """随机区组设计"""
     st.markdown("### 📦 随机区组设计 (RCBD)")
+    
+    st.info("""
+    **随机完全区组设计**是田间试验**最常用**的设计方法。
+    
+    **适用场景**：存在已知方向的环境梯度（如土壤肥力从一端到另一端变化）。
+    
+    **特点**：每个区组内包含全部处理的随机排列，通过区组控制环境变异。
+    
+    **输入**：处理名称列表 + 区组(重复)数。
+    
+    **输出**：各区组内排列结果、田间排列可视化图、区组间位置约束检查。
+    """)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -333,6 +439,8 @@ def rcbd_design():
             seed = st.number_input("固定随机种子", min_value=1, max_value=9999, value=42)
         check_constraint = st.checkbox("确保同一处理在不同区组间不出现在同一位置", value=True)
     
+    pn_cfg = plot_number_settings(key_prefix="rcbd")
+    
     if st.button("生成设计方案", type="primary"):
         # 基于时钟生成随机种子
         if use_random_seed:
@@ -341,6 +449,13 @@ def rcbd_design():
         
         # 使用约束随机化生成
         df_design = generate_rcbd_with_constraint(treatment_list, n_blocks, seed, check_constraint)
+        
+        # 根据小区号设置重新计算
+        _pn_col = []
+        for _, row in df_design.iterrows():
+            _block_num = int(row['区组'].replace('区组', ''))
+            _pn_col.append(calculate_plot_number(pn_cfg, rep_idx=_block_num, treat_idx=int(row['区内位置'])))
+        df_design['小区号'] = _pn_col
         
         st.success(f"✅ 已生成 {len(treatment_list)} 处理 × {n_blocks} 区组 = {len(df_design)} 个小区")
         
@@ -355,12 +470,30 @@ def rcbd_design():
         
         # 下载
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下载设计方案 (CSV)", csv, "RCBD设计方案.csv", "text/csv")
+        if can_download():
+            st.download_button("📥 下载设计方案 (CSV)", csv, "RCBD设计方案.csv", "text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
 
 
 def lsd_design():
     """拉丁方设计"""
     st.markdown("### 🔲 拉丁方设计 (LSD)")
+    
+    st.info("""
+    **拉丁方设计**可同时控制行和列两个方向的环境变异。
+    
+    **适用场景**：行向和列向都存在环境梯度（双向肥力差异）。
+    
+    **特点**：处理数 = 行数 = 列数，每个处理在每行每列恰好出现一次。
+    
+    **限制**：处理数不能太多（一般≤10），否则试验规模过大。
+    
+    **输入**：处理名称列表（处理数 = 行列数）。
+    
+    **输出**：拉丁方排列矩阵、田间排列可视化图。
+    """)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -378,6 +511,8 @@ def lsd_design():
         if not use_random_seed:
             seed = st.number_input("固定随机种子", min_value=1, max_value=9999, value=42)
         st.info(f"将生成 {n}×{n} = {n*n} 个小区")
+    
+    pn_cfg = plot_number_settings(key_prefix="lsd")
     
     if st.button("生成设计方案", type="primary"):
         # 基于时钟生成随机种子
@@ -407,24 +542,49 @@ def lsd_design():
         
         df_design = pd.DataFrame(plots)
         
+        # 根据小区号设置重新计算
+        _pn_col = []
+        for _, row in df_design.iterrows():
+            _pn_col.append(calculate_plot_number(pn_cfg, rep_idx=int(row['行']), treat_idx=int(row['列'])))
+        df_design['小区号'] = _pn_col
+        
         st.success(f"✅ 已生成 {n}×{n} 拉丁方设计")
         
         # 显示拉丁方
         st.markdown("#### 📋 拉丁方排列")
         pivot_df = df_design.pivot(index='行', columns='列', values='处理')
-        st.dataframe(pivot_df, use_container_width=True)
+        st.dataframe(pivot_df, width="stretch")
         
         # 可视化
         fig = visualize_lsd_layout(df_design, n)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下载设计方案 (CSV)", csv, "LSD设计方案.csv", "text/csv")
+        if can_download():
+            st.download_button("📥 下载设计方案 (CSV)", csv, "LSD设计方案.csv", "text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
 
 
 def split_plot_design():
     """裂区设计"""
     st.markdown("### ✂️ 裂区设计 (Split Plot)")
+    
+    st.info("""
+    **裂区设计**用于一个因素需要大面积、另一个因素小面积的情况。
+    
+    **适用场景**：如耕作方式（主区，大面积作业）× 品种（副区，小区操作）。
+    
+    **结构**：
+    - **主区**：施加主处理（因素A），面积大
+    - **副区**：主区内再细分，施加副处理（因素B）
+    - **区组**：每个区组包含所有主处理×副处理组合
+    
+    **注意**：主区和副区的误差项不同，副区比较精度通常更高。
+    
+    **输入**：主处理列表 + 副处理列表 + 区组数。
+    """)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -451,6 +611,8 @@ def split_plot_design():
         seed = st.number_input("固定随机种子", min_value=1, max_value=9999, value=42)
     check_constraint = st.checkbox("确保同一主处理在不同重复间不出现在同一位置", value=True)
     
+    pn_cfg = plot_number_settings(key_prefix="split")
+    
     if st.button("生成设计方案", type="primary"):
         # 基于时钟生成随机种子
         if use_random_seed:
@@ -460,10 +622,23 @@ def split_plot_design():
         # 使用约束随机化生成
         df_design = generate_split_plot_with_constraint(main_list, sub_list, n_reps, seed, check_constraint)
         
+        # 根据小区号设置重新计算（副处理位置作为区内序号）
+        _pn_col = []
+        _sub_idx = 0
+        _cur_rep = None
+        for _, row in df_design.iterrows():
+            _rep_num = int(row['重复'].replace('重复', ''))
+            if _rep_num != _cur_rep:
+                _cur_rep = _rep_num
+                _sub_idx = 0
+            _sub_idx += 1
+            _pn_col.append(calculate_plot_number(pn_cfg, rep_idx=_rep_num, treat_idx=_sub_idx))
+        df_design['小区号'] = _pn_col
+        
         st.success(f"✅ 已生成 {len(main_list)} 主处理 × {len(sub_list)} 副处理 × {n_reps} 重复 = {len(df_design)} 个小区")
         
         st.markdown("#### 📋 裂区设计排列")
-        st.dataframe(df_design, use_container_width=True)
+        st.dataframe(df_design, width="stretch")
         
         # 显示约束检查结果
         if check_constraint:
@@ -472,12 +647,30 @@ def split_plot_design():
         
         # 下载
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下载设计方案 (CSV)", csv, "裂区设计方案.csv", "text/csv")
+        if can_download():
+            st.download_button("📥 下载设计方案 (CSV)", csv, "裂区设计方案.csv", "text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
 
 
 def strip_plot_design():
     """条区设计"""
     st.markdown("### 📊 条区设计 (Strip Plot)")
+    
+    st.info("""
+    **条区设计**用于两个因素都需要大面积实施的情况。
+    
+    **适用场景**：如灌溉方式（横向条带）× 施肥量（纵向条带），两者都需大面积作业。
+    
+    **结构**：每个区组内，因素A的各水平排成横向条带，因素B的各水平排成纵向条带，交叉形成小区。
+    
+    **与裂区的区别**：
+    - 裂区：一个因素大面积、一个小面积（层次关系）
+    - 条区：两个因素都大面积（交叉关系）
+    
+    **输入**：因素A水平列表 + 因素B水平列表 + 区组数。
+    """)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -504,6 +697,8 @@ def strip_plot_design():
         seed = st.number_input("固定随机种子", min_value=1, max_value=9999, value=42)
     check_constraint = st.checkbox("确保同一水平在不同重复间不出现在同一位置", value=True)
     
+    pn_cfg = plot_number_settings(key_prefix="strip")
+    
     if st.button("生成设计方案", type="primary"):
         # 基于时钟生成随机种子
         if use_random_seed:
@@ -513,10 +708,23 @@ def strip_plot_design():
         # 使用约束随机化生成
         df_design = generate_strip_plot_with_constraint(a_list, b_list, n_reps, seed, check_constraint)
         
+        # 根据小区号设置重新计算
+        _pn_col = []
+        _pos_idx = 0
+        _cur_rep = None
+        for _, row in df_design.iterrows():
+            _rep_num = int(row['重复'].replace('重复', ''))
+            if _rep_num != _cur_rep:
+                _cur_rep = _rep_num
+                _pos_idx = 0
+            _pos_idx += 1
+            _pn_col.append(calculate_plot_number(pn_cfg, rep_idx=_rep_num, treat_idx=_pos_idx))
+        df_design['小区号'] = _pn_col
+        
         st.success(f"✅ 已生成 {len(a_list)} A水平 × {len(b_list)} B水平 × {n_reps} 重复 = {len(df_design)} 个小区")
         
         st.markdown("#### 📋 条区设计排列")
-        st.dataframe(df_design, use_container_width=True)
+        st.dataframe(df_design, width="stretch")
         
         # 显示约束检查结果
         if check_constraint:
@@ -524,12 +732,30 @@ def strip_plot_design():
             show_strip_plot_constraint_check(df_design, a_list, b_list, n_reps)
         
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下载设计方案 (CSV)", csv, "条区设计方案.csv", "text/csv")
+        if can_download():
+            st.download_button("📥 下载设计方案 (CSV)", csv, "条区设计方案.csv", "text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
 
 
 def met_design():
     """MET多点试验设计"""
     st.markdown("### 🌍 MET多点试验设计")
+    
+    st.info("""
+    **MET (Multi-Environment Trial) 设计**用于品种/处理在多地点的联合试验方案。
+    
+    **适用场景**：品种区域试验，需要在多个地点同时评价品种表现。
+    
+    **结构**：每个地点独立做一个区组设计（RCBD），所有地点使用相同的品种和处理。
+    
+    **输入**：品种列表 + 地点列表 + 每地点重复数。
+    
+    **输出**：各地点的随机化排列、田间排列可视化图、试验方案汇总。
+    
+    **后续分析**：设计完成后可使用"方差分析"页面的 MET 多点联合分析进行数据分析。
+    """)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -559,6 +785,8 @@ def met_design():
     check_row_constraint = st.checkbox("确保同一品种不在同一行连续出现", value=True)
     first_rep_not_random = st.checkbox("第一重复不随机（按品种顺序排列）", value=False)
     all_locations_same_order = st.checkbox("所有点的排列顺序一致（所有地点共用一套排列）", value=False)
+    
+    pn_cfg = plot_number_settings(has_environment=True, key_prefix="met")
     
     if st.button("生成MET设计方案", type="primary"):
         # 基于时钟生成随机种子
@@ -594,6 +822,15 @@ def met_design():
         
         df_met = pd.concat(all_designs, ignore_index=True)
         
+        # 根据小区号设置重新计算
+        _pn_col = []
+        for _, row in df_met.iterrows():
+            _loc_idx = location_list.index(row['地点']) + 1 if row['地点'] in location_list else 1
+            _block_str = str(row['区组/重复'])
+            _block_num = int(''.join(filter(str.isdigit, _block_str)) or '0')
+            _pn_col.append(calculate_plot_number(pn_cfg, rep_idx=_block_num, treat_idx=int(row['区内位置']), env_idx=_loc_idx))
+        df_met['小区编号'] = _pn_col
+        
         st.success(f"✅ 已生成 {len(location_list)} 地点 × {len(variety_list)} 品种 × {n_reps} 重复 = {len(df_met)} 个小区")
         
         # 按地点显示
@@ -602,11 +839,15 @@ def met_design():
             with st.expander(f"📍 {str(loc)}"):
                 loc_data = df_met[df_met['地点'] == loc]
                 pivot = loc_data.pivot(index='区组/重复', columns='区内位置', values='品种')
-                st.dataframe(pivot, use_container_width=True)
+                st.dataframe(pivot, width="stretch")
         
         # 下载完整方案
         csv = df_met.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下载完整MET设计方案 (CSV)", csv, "MET试验设计方案.csv", "text/csv")
+        if can_download():
+            st.download_button("📥 下载完整MET设计方案 (CSV)", csv, "MET试验设计方案.csv", "text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
         
 
 
@@ -916,7 +1157,7 @@ def show_replicate_constraint_check(df, treatments, n_reps):
     else:
         st.success("✅ 所有位置约束检查通过！同一处理在不同重复间不在同一位置。")
     
-    st.dataframe(pivot_data, use_container_width=True)
+    st.dataframe(pivot_data, width="stretch")
 
 
 def show_block_layout_table(df, treatments, n_blocks):
@@ -937,7 +1178,7 @@ def show_block_layout_table(df, treatments, n_blocks):
     # 应用样式
     styled_df = pivot_data.style.map(color_cells)
     
-    st.dataframe(styled_df, use_container_width=True)
+    st.dataframe(styled_df, width="stretch")
 
 
 def show_block_constraint_check(df, treatments, n_blocks):
@@ -959,7 +1200,7 @@ def show_block_constraint_check(df, treatments, n_blocks):
     else:
         st.success("✅ 所有位置约束检查通过！同一处理在不同区组间不在同一位置。")
     
-    st.dataframe(pivot_data, use_container_width=True)
+    st.dataframe(pivot_data, width="stretch")
 
 
 def show_split_plot_constraint_check(df, main_list, n_reps):
@@ -981,7 +1222,7 @@ def show_split_plot_constraint_check(df, main_list, n_reps):
     else:
         st.success("✅ 主处理位置约束检查通过！同一主处理在不同重复间不在同一位置。")
     
-    st.dataframe(pivot_data, use_container_width=True)
+    st.dataframe(pivot_data, width="stretch")
 
 
 def show_strip_plot_constraint_check(df, a_list, b_list, n_reps):
@@ -1004,7 +1245,7 @@ def show_strip_plot_constraint_check(df, a_list, b_list, n_reps):
             st.warning("⚠️ 冲突：\n" + "\n".join(conflict_a))
         else:
             st.success("✅ 通过")
-        st.dataframe(pivot_a, use_container_width=True)
+        st.dataframe(pivot_a, width="stretch")
     
     with col2:
         st.markdown("**因素B位置检查：**")
@@ -1022,7 +1263,7 @@ def show_strip_plot_constraint_check(df, a_list, b_list, n_reps):
             st.warning("⚠️ 冲突：\n" + "\n".join(conflict_b))
         else:
             st.success("✅ 通过")
-        st.dataframe(pivot_b, use_container_width=True)
+        st.dataframe(pivot_b, width="stretch")
 
 
 # ========== 可视化函数 ==========
@@ -1243,6 +1484,8 @@ def alpha_lattice_design():
         if not use_random_seed:
             seed = st.number_input("固定随机种子", min_value=1, max_value=9999, value=42)
     
+    pn_cfg = plot_number_settings(key_prefix="alpha")
+    
     if st.button("生成Alpha设计方案", type="primary"):
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
@@ -1250,6 +1493,19 @@ def alpha_lattice_design():
         
         # 生成Alpha设计
         df_design = generate_alpha_lattice(treatment_list, s, k, n_reps, seed)
+        
+        # 根据小区号设置重新计算
+        _pn_col = []
+        _pos_idx = 0
+        _cur_rep = None
+        for _, row in df_design.iterrows():
+            _rep_num = int(row['完整区组'].replace('区组', ''))
+            if _rep_num != _cur_rep:
+                _cur_rep = _rep_num
+                _pos_idx = 0
+            _pos_idx += 1
+            _pn_col.append(calculate_plot_number(pn_cfg, rep_idx=_rep_num, treat_idx=_pos_idx))
+        df_design['小区号'] = _pn_col
         
         st.success(f"✅ 已生成 Alpha设计：{len(treatment_list)} 处理 × {n_reps} 完整区组 = {len(df_design)} 个小区")
         st.markdown(f"**参数：** s={s}（每区组不完全区组数）× k={k}（每不完全区组处理数）")
@@ -1260,11 +1516,15 @@ def alpha_lattice_design():
         
         # 可视化
         fig = visualize_alpha_lattice(df_design, treatment_list, s, k)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         
         # 下载
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下载设计方案 (CSV)", csv, "Alpha设计方案.csv", "text/csv")
+        if can_download():
+            st.download_button("📥 下载设计方案 (CSV)", csv, "Alpha设计方案.csv", "text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
 
 
 def generate_alpha_lattice(treatments, s, k, n_reps, seed):
@@ -1349,7 +1609,7 @@ def show_alpha_lattice_layout(df, treatments, s, k, n_reps):
         with st.expander(f"📦 区组 {rep}"):
             # 创建透视表
             pivot = rep_data.pivot(index='不完全区组', columns='区内位置', values='处理')
-            st.dataframe(pivot, use_container_width=True)
+            st.dataframe(pivot, width="stretch")
             
             # 显示不完全区组信息
             st.markdown("**不完全区组详情：**")
@@ -1448,6 +1708,8 @@ def lattice_design():
         if not use_random_seed:
             seed = st.number_input("固定随机种子", min_value=1, max_value=9999, value=42)
     
+    pn_cfg = plot_number_settings(key_prefix="lattice")
+    
     if st.button("生成Lattice设计方案", type="primary"):
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
@@ -1455,6 +1717,14 @@ def lattice_design():
         
         # 生成Lattice设计
         df_design = generate_lattice_design(treatment_list, k, n_reps, seed)
+        
+        # 根据小区号设置重新计算
+        _pn_col = []
+        for _, row in df_design.iterrows():
+            _rep_num = int(row['重复'].replace('重复', ''))
+            _pos = (int(row['行']) - 1) * k + int(row['列'])
+            _pn_col.append(calculate_plot_number(pn_cfg, rep_idx=_rep_num, treat_idx=_pos))
+        df_design['小区号'] = _pn_col
         
         st.success(f"✅ 已生成 {k}×{k} 格子设计：{len(treatment_list)} 处理 × {n_reps} 重复 = {len(df_design)} 个小区")
         
@@ -1464,11 +1734,15 @@ def lattice_design():
         
         # 可视化
         fig = visualize_lattice_design(df_design, treatment_list, k)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         
         # 下载
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下载设计方案 (CSV)", csv, "Lattice设计方案.csv", "text/csv")
+        if can_download():
+            st.download_button("📥 下载设计方案 (CSV)", csv, "Lattice设计方案.csv", "text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
 
 
 def generate_lattice_design(treatments, k, n_reps, seed):
@@ -1527,7 +1801,7 @@ def show_lattice_layout(df, k, n_reps):
         with st.expander(f"📦 重复 {rep}"):
             rep_data = df[df['重复'] == f'重复{rep}']
             pivot = rep_data.pivot(index='行', columns='列', values='处理')
-            st.dataframe(pivot, use_container_width=True)
+            st.dataframe(pivot, width="stretch")
 
 
 def visualize_lattice_design(df, treatments, k):
@@ -1650,6 +1924,8 @@ def augmented_design():
     if not use_random_seed:
         seed = st.number_input("固定随机种子", min_value=1, max_value=9999, value=42)
     
+    pn_cfg = plot_number_settings(key_prefix="aug")
+    
     if st.button("生成增广设计方案", type="primary"):
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
@@ -1666,6 +1942,13 @@ def augmented_design():
                 check_list, test_list, n_checks_orig, n_reps, n_rows, n_cols, seed,
                 effective_n_reps=effective_n_reps
             )
+            # 对角线布局：按行列重新计算小区号
+            if '小区号' in df_design.columns:
+                _pn_col = []
+                for _, row in df_design.iterrows():
+                    _pos = int(row['行']) * n_cols + int(row['列']) + 1
+                    _pn_col.append(calculate_plot_number(pn_cfg, rep_idx=1, treat_idx=_pos))
+                df_design['小区号'] = _pn_col
             check_in_df = len(df_design[df_design['类型'].isin(['对照', '对照填充'])])
             test_in_df = len(df_design[df_design['类型'] == '测试'])
             fill_info = f" | 空余 {total_plots - eff_checks * eff_reps - test_in_df} 个小区用对照轮换填充" if total_plots > eff_checks * eff_reps + test_in_df else ""
@@ -1680,15 +1963,25 @@ def augmented_design():
             
             # 可视化
             fig = visualize_diagonal_check_design(df_design, check_list, n_rows, n_cols)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
             
             # 下载
             csv = df_design.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 下载设计方案 (CSV)", csv, "对角线增广设计方案.csv", "text/csv")
+            if can_download():
+                st.download_button("📥 下载设计方案 (CSV)", csv, "对角线增广设计方案.csv", "text/csv")
+            else:
+                st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
         else:
             # 随机布局
             np.random.seed(seed)
             df_design = generate_augmented_design(check_list, test_list, n_blocks, seed)
+            # 随机布局：按区组和位置重新计算小区号
+            _pn_col = []
+            for _, row in df_design.iterrows():
+                _block_num = int(row['区组'].replace('区组', ''))
+                _pn_col.append(calculate_plot_number(pn_cfg, rep_idx=_block_num, treat_idx=int(row['区内位置'])))
+            df_design['小区号'] = _pn_col
             st.success(f"✅ 已生成随机增广设计：{len(check_list)} 对照×{n_blocks}重复 + {len(test_list)} 测试 = {len(df_design)} 个小区")
             
             # 显示设计
@@ -1697,11 +1990,15 @@ def augmented_design():
             
             # 可视化
             fig = visualize_augmented_design(df_design, check_list, test_list)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
             
             # 下载
             csv = df_design.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 下载设计方案 (CSV)", csv, "随机增广设计方案.csv", "text/csv")
+            if can_download():
+                st.download_button("📥 下载设计方案 (CSV)", csv, "随机增广设计方案.csv", "text/csv")
+            else:
+                st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
 
 
 def generate_augmented_design(checks, tests, n_blocks, seed):
@@ -1801,7 +2098,7 @@ def show_augmented_layout(df, checks, tests, n_blocks):
             # 按区内位置顺序显示所有处理
             st.markdown("**区内排列顺序：**")
             display_df = block_data[['区内位置', '处理', '类型']].copy()
-            st.dataframe(display_df, use_container_width=True)
+            st.dataframe(display_df, width="stretch")
 
 
 def visualize_augmented_design(df, checks, tests):
@@ -1854,6 +2151,20 @@ def diagonal_design():
     """对角线设计"""
     st.markdown("### 📐 对角线设计 (Diagonal Design)")
     
+    st.info("""
+    **对角线设计**是品种初级筛选中常用的田间排列方式。
+    
+    **两种模式**：
+    - **普通对角线**：处理沿对角线方向依次排列，适合纯筛选目的
+    - **对照对角线**：对照品种均匀分布在田块的对角线位置，处理随机插入其间
+    
+    **适用场景**：品种初级鉴定试验、处理数较多的初筛试验。
+    
+    **输入**：处理列表（对照对角线需额外提供对照品种）+ 行列数。
+    
+    **输出**：田间排列可视化图、各重复排列结果。
+    """)
+    
     design_type = st.selectbox(
         "设计模式", 
         ["普通对角线", "对照对角线（对照均匀分布）"]
@@ -1905,6 +2216,8 @@ def _diagonal_basic_design():
         if not use_random_seed:
             seed = st.number_input("固定随机种子", min_value=1, max_value=9999, value=42)
     
+    pn_cfg = plot_number_settings(key_prefix="diag")
+    
     if st.button("生成对角线设计方案", type="primary"):
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
@@ -1912,6 +2225,13 @@ def _diagonal_basic_design():
         
         # 生成对角线设计
         df_design = generate_diagonal_design(treatment_list, n_rows, n_cols, seed)
+        
+        # 按行列重新计算小区号
+        _pn_col = []
+        for _, row in df_design.iterrows():
+            _pos = int(row['行']) * n_cols + int(row['列']) + 1
+            _pn_col.append(calculate_plot_number(pn_cfg, rep_idx=1, treat_idx=_pos))
+        df_design['小区号'] = _pn_col
         
         st.success(f"✅ 已生成对角线设计：{n_rows}×{n_cols} = {len(df_design)} 个小区")
         
@@ -1921,11 +2241,15 @@ def _diagonal_basic_design():
         
         # 可视化
         fig = visualize_diagonal_design(df_design, treatment_list, n_rows, n_cols)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         
         # 下载
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下载设计方案 (CSV)", csv, "对角线设计方案.csv", "text/csv")
+        if can_download():
+            st.download_button("📥 下载设计方案 (CSV)", csv, "对角线设计方案.csv", "text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
 
 
 def _diagonal_check_design():
@@ -1996,6 +2320,8 @@ def _diagonal_check_design():
         if not use_random_seed:
             seed = st.number_input("固定随机种子", min_value=1, max_value=9999, value=42)
     
+    pn_cfg_diag = plot_number_settings(key_prefix="diagck")
+    
     if st.button("生成对角线设计方案", type="primary"):
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
@@ -2016,6 +2342,14 @@ def _diagonal_check_design():
             effective_n_reps=effective_n_reps
         )
         
+        # 按行列重新计算小区号
+        if '小区号' in df_design.columns:
+            _pn_col = []
+            for _, row in df_design.iterrows():
+                _pos = int(row['行']) * n_cols + int(row['列']) + 1
+                _pn_col.append(calculate_plot_number(pn_cfg_diag, rep_idx=1, treat_idx=_pos))
+            df_design['小区号'] = _pn_col
+        
         test_in_df = len(df_design[df_design['类型'] == '测试'])
         fill_info = f" | 空余 {total_plots - eff_checks * eff_reps - test_in_df} 个小区用对照轮换填充" if total_plots > eff_checks * eff_reps + test_in_df else ""
         if eff_reps < n_reps:
@@ -2029,11 +2363,15 @@ def _diagonal_check_design():
         
         # 可视化
         fig = visualize_diagonal_check_design(df_design, check_list, n_rows, n_cols)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
         
         # 下载
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下载设计方案 (CSV)", csv, "对照对角线设计方案.csv", "text/csv")
+        if can_download():
+            st.download_button("📥 下载设计方案 (CSV)", csv, "对照对角线设计方案.csv", "text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
 
 
 def generate_diagonal_design(treatments, n_rows, n_cols, seed):
@@ -2362,7 +2700,7 @@ def generate_diagonal_check_design(checks, tests, n_checks, n_reps, n_rows, n_co
 def show_diagonal_layout(df, n_rows, n_cols):
     """显示对角线设计布局"""
     pivot = df.pivot(index='行', columns='列', values='处理')
-    st.dataframe(pivot, use_container_width=True)
+    st.dataframe(pivot, width="stretch")
     
     # 显示对角线信息
     st.markdown("**设计说明：**")
@@ -2380,7 +2718,7 @@ def show_diagonal_check_layout(df, n_rows, n_cols):
     )
     pivot = df_disp.pivot(index='行', columns='列', values='显示')
     st.markdown("**处理矩阵（#后数字为入位顺序）：**")
-    st.dataframe(pivot, use_container_width=True)
+    st.dataframe(pivot, width="stretch")
     
     # 统计信息
     check_count = len(df[df['类型'] == '对照'])
@@ -2577,6 +2915,18 @@ def interval_test_design():
     - 适合处理数众多（数十到数百）的新品种初筛
     """)
     
+    # 多点设置
+    with st.expander("🌍 多点试验设置（可选）", expanded=False):
+        locations_input = st.text_area(
+            "试验地点列表（每行一个，留空则为单点试验）",
+            value="",
+            height=80,
+            key="interval_locations",
+            placeholder="北京\n天津\n石家庄"
+        )
+        location_list = [l.strip() for l in locations_input.split('\n') if l.strip()]
+        all_same_order = st.checkbox("所有地点排列顺序一致", value=False, key="interval_same_order")
+    
     col1, col2 = st.columns([1.2, 1])
     with col1:
         st.markdown("**测试处理（每行一个）：**")
@@ -2592,41 +2942,49 @@ def interval_test_design():
         st.markdown("**对照设置：**")
         
         # CK1设置
-        use_ck1 = st.checkbox("启用 CK1", value=True)
-        with st.container():
-            ck1_name = st.text_input("CK1品种名", value="CK1", disabled=not use_ck1, 
-                                     placeholder="如：丰抗二号")
-            c1_col1, c1_col2 = st.columns(2)
-            ck1_start = c1_col1.number_input("起始位置", min_value=1, value=1, 
-                                               disabled=not use_ck1, key="ck1_start")
-            ck1_interval = c1_col2.number_input("间隔", min_value=3, max_value=50, value=10, 
-                                                disabled=not use_ck1, key="ck1_intv")
+        ck1_col1, ck1_col2 = st.columns([0.4, 0.6])
+        with ck1_col1:
+            use_ck1 = st.checkbox("启用 CK1", value=True)
+        with ck1_col2:
+            ck1_name = st.text_input("品种名", value="CK1", disabled=not use_ck1,
+                                       placeholder="如：丰抗二号", label_visibility="collapsed")
+        c1_col1, c1_col2 = st.columns(2)
+        ck1_start = c1_col1.number_input("起始位置", min_value=1, value=1,
+                                           disabled=not use_ck1, key="ck1_start")
+        ck1_interval = c1_col2.number_input("间隔", min_value=3, max_value=50, value=10,
+                                            disabled=not use_ck1, key="ck1_intv")
         
         # CK2设置
-        use_ck2 = st.checkbox("启用 CK2", value=True)
-        with st.container():
-            ck2_name = st.text_input("CK2品种名", value="CK2", disabled=not use_ck2,
-                                     placeholder="如：本地主栽")
-            c2_col1, c2_col2 = st.columns(2)
-            ck2_start = c2_col1.number_input("起始位置", min_value=1, value=1, 
-                                               disabled=not use_ck2, key="ck2_start")
-            ck2_interval = c2_col2.number_input("间隔", min_value=3, max_value=100, value=20, 
-                                                disabled=not use_ck2, key="ck2_intv")
+        ck2_col1, ck2_col2 = st.columns([0.4, 0.6])
+        with ck2_col1:
+            use_ck2 = st.checkbox("启用 CK2", value=True)
+        with ck2_col2:
+            ck2_name = st.text_input("品种名", value="CK2", disabled=not use_ck2,
+                                       placeholder="如：本地主栽", label_visibility="collapsed")
+        c2_col1, c2_col2 = st.columns(2)
+        ck2_start = c2_col1.number_input("起始位置", min_value=1, value=1,
+                                           disabled=not use_ck2, key="ck2_start")
+        ck2_interval = c2_col2.number_input("间隔", min_value=3, max_value=100, value=20,
+                                            disabled=not use_ck2, key="ck2_intv")
         
         # CK3设置
-        use_ck3 = st.checkbox("启用 CK3", value=True)
-        with st.container():
-            ck3_name = st.text_input("CK3品种名", value="CK3", disabled=not use_ck3,
-                                     placeholder="如：区域对照")
-            c3_col1, c3_col2 = st.columns(2)
-            ck3_start = c3_col1.number_input("起始位置", min_value=1, value=1, 
-                                               disabled=not use_ck3, key="ck3_start")
-            ck3_interval = c3_col2.number_input("间隔", min_value=3, max_value=150, value=29, 
-                                                disabled=not use_ck3, key="ck3_intv")
+        ck3_col1, ck3_col2 = st.columns([0.4, 0.6])
+        with ck3_col1:
+            use_ck3 = st.checkbox("启用 CK3", value=True)
+        with ck3_col2:
+            ck3_name = st.text_input("品种名", value="CK3", disabled=not use_ck3,
+                                       placeholder="如：区域对照", label_visibility="collapsed")
+        c3_col1, c3_col2 = st.columns(2)
+        ck3_start = c3_col1.number_input("起始位置", min_value=1, value=1,
+                                           disabled=not use_ck3, key="ck3_start")
+        ck3_interval = c3_col2.number_input("间隔", min_value=3, max_value=150, value=29,
+                                            disabled=not use_ck3, key="ck3_intv")
         
         use_random_seed = st.checkbox("使用随机种子", value=True)
         if not use_random_seed:
             seed = st.number_input("固定随机种子", min_value=1, max_value=9999, value=42)
+    
+    pn_cfg = plot_number_settings(has_environment=len(location_list) > 0, key_prefix="interval")
     
     if st.button("生成间比法设计方案", type="primary"):
         # 收集启用的对照配置：(品种名, 起始位置, 间隔)
@@ -2645,23 +3003,54 @@ def interval_test_design():
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
         
-        df_design = generate_interval_design_v3(test_list, ck_configs, seed)
+        # 单点 or 多点
+        locs = location_list if location_list else [""]
+        base_seed = seed
+        all_dfs = []
+        
+        for env_idx, loc in enumerate(locs):
+            loc_seed = base_seed if (all_same_order or not location_list) else (base_seed + env_idx * 31)
+            df_loc = generate_interval_design_v3(test_list, ck_configs, loc_seed)
+            if location_list:
+                df_loc.insert(0, '地点', loc)
+            # 重新计算小区号
+            _pn_col = []
+            for pos_i, _ in enumerate(df_loc.iterrows()):
+                _pn_col.append(calculate_plot_number(
+                    pn_cfg, rep_idx=1, treat_idx=pos_i + 1,
+                    env_idx=env_idx + 1 if location_list else 0
+                ))
+            df_loc['小区号'] = _pn_col
+            all_dfs.append(df_loc)
+        
+        df_design = pd.concat(all_dfs, ignore_index=True) if len(all_dfs) > 1 else all_dfs[0]
         
         n_ck = len(df_design[df_design['类型'] == '对照'])
-        n_tests = len(df_design[df_design['类型'] == '测试'])
+        n_tests_cnt = len(df_design[df_design['类型'] == '测试'])
+        loc_info = f" × {len(locs)} 地点" if location_list else ""
         
-        st.success(f"✅ 已生成间比法设计：{n_tests} 测试 + {n_ck} 对照 = {len(df_design)} 个小区")
+        st.success(f"✅ 已生成间比法设计：{n_tests_cnt} 测试 + {n_ck} 对照 = {len(df_design)} 个小区{loc_info}")
         
         # 显示设计
-        st.markdown("#### 📋 间比法排列")
-        st.dataframe(df_design, use_container_width=True)
-        
-        # 可视化
-        fig = visualize_interval_design_v3(df_design, ck_configs)
-        st.plotly_chart(fig, use_container_width=True)
+        if location_list:
+            for loc in locs:
+                st.markdown(f"#### 📋 {loc} — 间比法排列")
+                df_loc = df_design[df_design['地点'] == loc].drop(columns=['地点'])
+                st.dataframe(df_loc, use_container_width=True)
+                fig = visualize_interval_design_v3(df_loc, ck_configs)
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.markdown("#### 📋 间比法排列")
+            st.dataframe(df_design, use_container_width=True)
+            fig = visualize_interval_design_v3(df_design, ck_configs)
+            st.plotly_chart(fig, use_container_width=True)
         
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下载间比法设计方案 (CSV)", csv, "间比法设计方案.csv", "text/csv")
+        if can_download():
+            st.download_button("📥 下载间比法设计方案 (CSV)", csv, "间比法设计方案.csv", "text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
 
 
 def generate_interval_design_v3(tests, ck_configs, seed=42):
@@ -2719,6 +3108,40 @@ def generate_interval_design_v3(tests, ck_configs, seed=42):
             test_idx += 1
         else:
             break  # 达到测试数即可结束
+    
+    # 确保首尾都是CK1对照
+    ck1_name = ck_configs[0][0] if ck_configs else 'CK1'
+    ck1_type = 'CK1'
+
+    # 确保开头是CK1
+    if not results or results[0]['处理'] != ck1_name:
+        results.insert(0, {
+            '位置': 0,
+            '处理': ck1_name,
+            '类型': '对照',
+            '对照类别': ck1_type
+        })
+    # 如果开头是其他CK，替换为CK1
+    elif results[0]['处理'] != ck1_name or results[0]['对照类别'] != 'CK1':
+        results[0]['处理'] = ck1_name
+        results[0]['对照类别'] = ck1_type
+
+    # 确保末尾是CK1（不重复添加）
+    if results[-1]['处理'] != ck1_name:
+        results.append({
+            '位置': results[-1]['位置'] + 1,
+            '处理': ck1_name,
+            '类型': '对照',
+            '对照类别': ck1_type
+        })
+    # 如果末尾是其他CK，替换为CK1
+    elif results[-1]['对照类别'] != 'CK1':
+        results[-1]['处理'] = ck1_name
+        results[-1]['对照类别'] = ck1_type
+    
+    # 重新编排连续的位置号
+    for i, item in enumerate(results):
+        item['位置'] = i + 1
     
     # 构建DataFrame
     df = pd.DataFrame(results)
@@ -2791,12 +3214,25 @@ def contrast_design():
     
     st.info("""
     **对比法**是简单的品种比较设计：
-    - 每个处理紧邻一个对照（CK）
-    - 计算各处理相对于相邻对照的百分比
+    - 每个处理两侧各有一个对照（CK1）
+    - 理论对照 = (左CK1 + 右CK1) / 2
+    - 相对产量 = (处理产量 / 理论对照) × 100%
     - 精度高，但对照占地面积大（50%）
     
     **排列格式**：CK — 处理 — CK — 处理 — CK ...
     """)
+    
+    # 多点设置
+    with st.expander("🌍 多点试验设置（可选）", expanded=False):
+        locations_input = st.text_area(
+            "试验地点列表（每行一个，留空则为单点试验）",
+            value="",
+            height=80,
+            key="contrast_locations",
+            placeholder="北京\n天津\n石家庄"
+        )
+        location_list = [l.strip() for l in locations_input.split('\n') if l.strip()]
+        all_same_order = st.checkbox("所有地点排列顺序一致", value=False, key="contrast_same_order")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -2813,35 +3249,80 @@ def contrast_design():
         if not use_random_seed:
             seed = st.number_input("固定随机种子", min_value=1, max_value=9999, value=42)
     
+    pn_cfg = plot_number_settings(has_environment=len(location_list) > 0, key_prefix="contrast")
+    
     if st.button("生成对比法设计方案", type="primary"):
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
-        np.random.seed(seed)
         
-        df_design = generate_contrast_design(treatment_list, seed)
+        # 单点 or 多点
+        locs = location_list if location_list else [""]
+        base_seed = seed
+        all_dfs = []
         
-        st.success(f"✅ 已生成对比法设计：{len(treatment_list)} 处理 × 2 = {len(df_design)} 个小区")
+        for env_idx, loc in enumerate(locs):
+            loc_seed = base_seed if (all_same_order or not location_list) else (base_seed + env_idx * 31)
+            df_loc = generate_contrast_design(treatment_list, loc_seed)
+            if location_list:
+                df_loc.insert(0, '地点', loc)
+            # 重新计算小区号
+            _pn_col = []
+            for pos_i, _ in enumerate(df_loc.iterrows()):
+                _pn_col.append(calculate_plot_number(
+                    pn_cfg, rep_idx=1, treat_idx=pos_i + 1,
+                    env_idx=env_idx + 1 if location_list else 0
+                ))
+            df_loc['小区号'] = _pn_col
+            all_dfs.append(df_loc)
+        
+        df_design = pd.concat(all_dfs, ignore_index=True) if len(all_dfs) > 1 else all_dfs[0]
+        
+        loc_info = f" × {len(locs)} 地点" if location_list else ""
+        st.success(f"✅ 已生成对比法设计：{len(treatment_list)} 处理{loc_info}，共 {len(df_design)} 个小区")
         
         # 显示设计
-        st.markdown("#### 📋 对比法排列")
-        st.dataframe(df_design, use_container_width=True)
-        
-        # 可视化
-        fig = visualize_contrast_design(df_design, treatment_list)
-        st.plotly_chart(fig, use_container_width=True)
+        if location_list:
+            for loc in locs:
+                st.markdown(f"#### 📋 {loc} — 对比法排列")
+                df_loc = df_design[df_design['地点'] == loc].drop(columns=['地点'])
+                st.dataframe(df_loc, use_container_width=True)
+                fig = visualize_contrast_design(df_loc, treatment_list)
+                st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.markdown("#### 📋 对比法排列")
+            st.dataframe(df_design, use_container_width=True)
+            fig = visualize_contrast_design(df_design, treatment_list)
+            st.plotly_chart(fig, use_container_width=True)
         
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下载对比法设计方案 (CSV)", csv, "对比法设计方案.csv", "text/csv")
+        if can_download():
+            st.download_button("📥 下载对比法设计方案 (CSV)", csv, "对比法设计方案.csv", "text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
+
 
 
 def generate_contrast_design(treatments, seed):
-    """生成对比法设计"""
+    """生成对比法设计
+    
+    排列格式：CK — 处理 — CK — 处理 — ... — 处理 — CK
+    末尾补一个CK，但如果最后一个处理后面已经有CK则不重复。
+    """
     plots = []
     np.random.shuffle(treatments)
     
     for i, treat in enumerate(treatments):
-        plots.append({'位置': i*2+1, '处理': 'CK', '类型': '对照', '配对处理': treat, '小区号': len(plots)+1})
-        plots.append({'位置': i*2+2, '处理': treat, '类型': '测试', '配对处理': 'CK', '小区号': len(plots)+1})
+        plots.append({'位置': len(plots)+1, '处理': 'CK', '类型': '对照', '配对处理': treat, '小区号': len(plots)+1})
+        plots.append({'位置': len(plots)+1, '处理': treat, '类型': '测试', '配对处理': 'CK', '小区号': len(plots)+1})
+    
+    # 确保末尾是CK（当前末尾是处理，需要补一个CK）
+    if plots and plots[-1]['类型'] != '对照':
+        plots.append({'位置': len(plots)+1, '处理': 'CK', '类型': '对照', '配对处理': None, '小区号': len(plots)+1})
+    
+    # 重新编号位置和小区号
+    for i, p in enumerate(plots):
+        p['位置'] = i + 1
+        p['小区号'] = i + 1
     
     return pd.DataFrame(plots)
 

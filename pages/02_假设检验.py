@@ -11,12 +11,17 @@ from scipy import stats
 import plotly.graph_objects as go
 import plotly.express as px
 
-from utils.data_manager import get_data_manager
+from utils.data_manager import get_current_dm
 from utils.styles import inject_css
+from utils.visitor_logger import log_visit
+from billing.billing import require_auth
 
 def render_hypothesis_test():
+    require_auth()
+    log_visit("假设检验")
     inject_css()
     st.markdown('<div class="section-header">🔬 假设检验</div>', unsafe_allow_html=True)
+
     
     # 功能简介下拉菜单
     with st.expander("📖 功能简介", expanded=False):
@@ -53,15 +58,15 @@ def render_hypothesis_test():
         </div>
         """, unsafe_allow_html=True)
     
-    dm = get_data_manager()
+    dm = get_current_dm()
     
     if not dm.is_loaded:
-        st.warning("⚠️ 请先上传数据文件")
+        st.warning("⚠️ 请从首页上传数据")
         return
     
     df = dm.data
-    numeric_cols = dm.get_numeric_columns()
-    categorical_cols = dm.get_categorical_columns()
+    numeric_cols = dm.get_pure_numeric_columns()
+    categorical_cols = dm.get_all_categorical_columns()
     
     # 检验类型选择
     test_type = st.selectbox(
@@ -72,10 +77,10 @@ def render_hypothesis_test():
             "独立双样本t检验",
             "配对样本t检验",
             "卡方独立性检验",
-            "正态性检验 (Shapiro-Wilk)",
-            "方差齐性检验 (Levene)",
-            "单因素方差分析 (One-way ANOVA)",
-            "非参数检验 (Mann-Whitney U / Kruskal-Wallis)"
+            "正态性检验（Shapiro-Wilk）",
+            "方差齐性检验（Levene）",
+            "单因素方差分析",
+            "非参数检验（Mann-Whitney U / Kruskal-Wallis）"
         ]
     )
     
@@ -97,16 +102,16 @@ def render_hypothesis_test():
     elif test_type == "卡方独立性检验":
         chi_square_test(df, categorical_cols)
     
-    elif test_type == "正态性检验 (Shapiro-Wilk)":
+    elif test_type == "正态性检验（Shapiro-Wilk）":
         normality_test(df, numeric_cols)
     
-    elif test_type == "方差齐性检验 (Levene)":
+    elif test_type == "方差齐性检验（Levene）":
         levene_test(df, numeric_cols, categorical_cols)
     
-    elif test_type == "单因素方差分析 (One-way ANOVA)":
+    elif test_type == "单因素方差分析":
         oneway_anova(df, numeric_cols, categorical_cols)
     
-    elif test_type == "非参数检验 (Mann-Whitney U / Kruskal-Wallis)":
+    elif test_type == "非参数检验（Mann-Whitney U / Kruskal-Wallis）":
         nonparametric_test(df, numeric_cols, categorical_cols)
 
 
@@ -164,6 +169,18 @@ def result_box(statistic, p_value, df=None, test_name=""):
 def one_sample_t_test(df, numeric_cols):
     st.markdown("### 📌 单样本t检验")
     
+    st.info("""
+    **单样本t检验**用于检验样本均值是否与某已知值（μ₀）有显著差异。
+    
+    **数据要求**：1个数值变量（连续型）。
+    
+    **原假设**：H₀: μ = μ₀（样本总体均值等于假设值）。
+    
+    **前提条件**：数据近似正态分布，样本量小时需更严格。
+    
+    **输出**：t统计量、p值、95%置信区间、分布可视化图。
+    """)
+    
     col_select = st.selectbox("选择检验变量", numeric_cols)
     hypothesized_mean = st.number_input("原假设均值 (μ₀)", value=0.0)
     
@@ -189,12 +206,27 @@ def one_sample_t_test(df, numeric_cols):
                   annotation_text=f"样本均值={data.mean():.2f}")
     fig.add_vline(x=hypothesized_mean, line_dash="dot", line_color="green",
                   annotation_text=f"假设均值={hypothesized_mean}")
-    fig.update_layout(title='单样本t检验可视化', xaxis_title='值', height=400)
-    st.plotly_chart(fig, use_container_width=True)
+    fig.update_layout(title='单样本t检验可视化', xaxis_title='值', height=400,
+                      legend_title_text=None)
+    st.plotly_chart(fig, width="stretch")
 
 
 def independent_t_test(df, numeric_cols, categorical_cols):
     st.markdown("### 📌 独立双样本t检验")
+    
+    st.info("""
+    **独立双样本t检验**用于比较两组独立样本的均值是否有显著差异。
+    
+    **数据要求**：1个数值变量 + 1个恰好含2个类别的分组变量。
+    
+    **原假设**：H₀: μ₁ = μ₂（两组均值相等）。
+    
+    **两种模式**：
+    - **不勾选"假设方差相等"**：使用 Welch's t-test（推荐，不要求方差齐）
+    - **勾选"假设方差相等"**：使用 Student's t-test（要求两组方差近似相等）
+    
+    **输出**：t统计量、p值、两组均值及差异、箱线图。
+    """)
     
     var_col = st.selectbox("选择检验变量", numeric_cols, key="ind_t_var")
     group_col = st.selectbox("选择分组变量", categorical_cols, key="ind_t_group")
@@ -222,11 +254,23 @@ def independent_t_test(df, numeric_cols, categorical_cols):
     
     fig = px.box(df, x=group_col, y=var_col, color=group_col,
                  title=f'{var_col} 按{group_col}分组的分布')
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def paired_t_test(df, numeric_cols):
     st.markdown("### 📌 配对样本t检验")
+    
+    st.info("""
+    **配对样本t检验**用于比较同一组对象在两个条件下的测量值（如处理前/后）。
+    
+    **数据要求**：2个数值变量（同一对象的两列测量值，需一一对应）。
+    
+    **原假设**：H₀: μd = 0（配对差值的均值等于零）。
+    
+    **与独立t检验的区别**：配对t检验利用配对关系消除个体差异，检验效力更高。
+    
+    **输出**：t统计量、p值、配对差异图。
+    """)
     
     col1 = st.selectbox("选择第一组变量", numeric_cols, key="pair_1")
     col2 = st.selectbox("选择第二组变量", [c for c in numeric_cols if c != col1], key="pair_2")
@@ -245,11 +289,23 @@ def paired_t_test(df, numeric_cols):
                               mode='lines+markers', name='差值'))
     fig.add_hline(y=0, line_dash="dash", line_color="red")
     fig.update_layout(title='配对差异图', xaxis_title='样本序号', yaxis_title='差值', height=350)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def chi_square_test(df, categorical_cols):
     st.markdown("### 📌 卡方独立性检验")
+    
+    st.info("""
+    **卡方独立性检验**用于判断两个分类变量之间是否存在关联。
+    
+    **数据要求**：2个分类变量（行变量 + 列变量）。
+    
+    **原假设**：H₀: 两变量相互独立（无关联）。
+    
+    **前提条件**：期望频数≥5的格子至少占80%，所有格子期望频数≥1。
+    
+    **输出**：χ²统计量、p值、自由度、观测频数表与期望频数表。
+    """)
     
     if len(categorical_cols) < 2:
         st.warning("需要至少2个分类变量")
@@ -272,7 +328,21 @@ def chi_square_test(df, categorical_cols):
 
 
 def normality_test(df, numeric_cols):
-    st.markdown("### 📌 正态性检验 (Shapiro-Wilk)")
+    st.markdown("### 📌 正态性检验（Shapiro-Wilk）")
+    
+    st.info("""
+    **Shapiro-Wilk 正态性检验**用于判断数据是否来自正态分布。
+    
+    **数据要求**：1个或多个数值变量（样本量建议3~5000）。
+    
+    **原假设**：H₀: 数据服从正态分布。
+    
+    **结果解读**：
+    - p > 0.05 → 不拒绝H₀，可认为数据正态
+    - p ≤ 0.05 → 拒绝H₀，数据显著偏离正态
+    
+    **用途**：在选择参数检验（t检验、ANOVA）之前，通常先做正态性检验。
+    """)
     
     selected = st.multiselect("选择变量", numeric_cols, default=numeric_cols[:5])
     
@@ -292,11 +362,25 @@ def normality_test(df, numeric_cols):
     
     result_df = pd.DataFrame(results).set_index('变量')
     st.dataframe(result_df.style.apply(lambda x: ['background-color:#d4edda' if v=='正态' else 'background-color:#f8d7da' 
-                                                  for v in x], subset=['结论']), use_container_width=True)
+                                                  for v in x], subset=['结论']), width="stretch")
 
 
 def levene_test(df, numeric_cols, categorical_cols):
-    st.markdown("### 📌 方差齐性检验 (Levene)")
+    st.markdown("### 📌 方差齐性检验（Levene）")
+    
+    st.info("""
+    **Levene 方差齐性检验**用于检验多组数据的方差是否相等。
+    
+    **数据要求**：1个数值变量 + 1个分组变量（2组及以上）。
+    
+    **原假设**：H₀: 各组方差相等（方差齐性）。
+    
+    **用途**：ANOVA和独立t检验前，检验方差齐性假设是否满足。
+    
+    **结果解读**：
+    - p > 0.05 → 方差齐性假设成立，可使用常规ANOVA
+    - p ≤ 0.05 → 方差不齐，应考虑Welch's ANOVA或非参数替代
+    """)
     
     var_col = st.selectbox("选择变量", numeric_cols, key="lev_var")
     group_col = st.selectbox("选择分组变量", categorical_cols, key="lev_group")
@@ -309,7 +393,21 @@ def levene_test(df, numeric_cols, categorical_cols):
 
 
 def oneway_anova(df, numeric_cols, categorical_cols):
-    st.markdown("### 📌 单因素方差分析 (One-way ANOVA)")
+    st.markdown("### 📌 单因素方差分析")
+    
+    st.info("""
+    **单因素方差分析 (One-way ANOVA)**用于比较多组（≥3组）均值是否有显著差异。
+    
+    **数据要求**：1个数值因变量 + 1个分类自变量（组别）。
+    
+    **原假设**：H₀: μ₁ = μ₂ = ... = μₖ（所有组均值相等）。
+    
+    **前提条件**：各组独立、正态、方差齐。
+    
+    **注意**：ANOVA仅告诉你"有差异"，不能告诉你"哪两组之间有差异"。多重比较需在方差分析页面中使用。
+    
+    **输出**：F统计量、p值、效应量η²、各组描述统计、箱线图。
+    """)
     
     var_col = st.selectbox("选择因变量", numeric_cols, key="anova_var")
     group_col = st.selectbox("选择自变量（分组）", categorical_cols, key="anova_group")
@@ -349,11 +447,25 @@ def oneway_anova(df, numeric_cols, categorical_cols):
     
     fig = px.box(df, x=group_col, y=var_col, color=group_col,
                  title=f'{var_col} 的组间差异')
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def nonparametric_test(df, numeric_cols, categorical_cols):
     st.markdown("### 📌 非参数检验")
+    
+    st.info("""
+    **非参数检验**是不依赖正态分布假设的替代检验方法。
+    
+    **两种方法**：
+    - **Mann-Whitney U**（两组比较）：非正态数据下独立双样本t检验的替代
+    - **Kruskal-Wallis**（多组比较）：非正态数据下单因素ANOVA的替代
+    
+    **数据要求**：数值变量 + 分组变量（U检验需2组，K-W需≥2组）。
+    
+    **原假设**：各组的分布相同（中位数无差异）。
+    
+    **使用场景**：数据明显非正态、存在极端异常值、样本量很小、或有序分类数据。
+    """)
     
     test_method = st.radio("选择检验方法", ["Mann-Whitney U (两组)", "Kruskal-Wallis (多组)"], horizontal=True)
     

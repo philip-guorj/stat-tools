@@ -20,6 +20,6 @@ fastReruns = true
 [theme]
 primaryColor = "#3B82F6"
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F0F4FF"
+secondaryBackgroundColor = "#F1F5F9"
 textColor = "#1E293B"
 font = "sans serif"

@@ -10,8 +10,10 @@ import numpy as np
 import warnings
 warnings.filterwarnings('ignore')
 
-from utils.data_manager import get_data_manager
+from utils.data_manager import get_current_dm
 from utils.styles import inject_css
+from utils.visitor_logger import log_visit
+from billing.billing import require_auth, can_download
 
 
 # ========== 延迟导入重量级计算库 ==========
@@ -64,8 +66,11 @@ def _get_subplots():
 
 
 def render_multivariate():
+    require_auth()
+    log_visit("多变量分析")
     inject_css()
     st.markdown('<div class="section-header">🎯 多变量分析</div>', unsafe_allow_html=True)
+
     
     # 功能简介下拉菜单
     with st.expander("📖 功能简介", expanded=False):
@@ -95,10 +100,10 @@ def render_multivariate():
         </div>
         """, unsafe_allow_html=True)
     
-    dm = get_data_manager()
+    dm = get_current_dm()
     
     if not dm.is_loaded:
-        st.warning("⚠️ 请先上传数据文件")
+        st.warning("⚠️ 请从首页上传数据")
         return
     
     df = dm.data
@@ -150,6 +155,22 @@ def show_multivariate_overview():
 # ========== 主成分分析 ==========
 def pca_analysis(df):
     st.markdown("### 📊 主成分分析 (Principal Component Analysis)")
+    
+    st.info("""
+    **主成分分析 (PCA)** 是一种降维技术，将多个相关变量综合为少数几个不相关的综合指标。
+    
+    **适用场景**：变量多且存在相关性，需要降维或综合评价时（如多性状品种评价）。
+    
+    **数据要求**：≥2个数值变量，建议标准化消除量纲影响。
+    
+    **关键概念**：
+    - **特征值 > 1**：对应主成分的方差贡献大于单个原始变量
+    - **累计方差 > 70%~80%**：前几个主成分能解释大部分信息
+    - **载荷(Loading)**：原始变量与主成分的相关系数，绝对值越大关系越密切
+    - **KMO > 0.6**：数据适合做PCA（取样适切性良好）
+    
+    **输出**：特征值表、碎石图、得分图(2D/3D)、变量载荷图。
+    """)
     
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     
@@ -231,11 +252,11 @@ def pca_analysis(df):
         line=dict(color='red', width=2)
     ), secondary_y=True)
     fig_scree.update_layout(
-        title='碎石图 (Scree Plot)',
+        title='碎石图',
         xaxis_title='主成分', yaxis_title='特征值',
         yaxis2_title='累积方差%', height=400
     )
-    st.plotly_chart(fig_scree, use_container_width=True)
+    st.plotly_chart(fig_scree, width="stretch")
     
     # 得分图
     tab_2d, tab_3d, tab_load = st.tabs(["PC1×PC2得分图", "三维得分图", "载荷图"])
@@ -268,9 +289,10 @@ def pca_analysis(df):
         
         fig_2d.update_layout(
             title=f'PC1 ({variance_ratio[0]*100:.1f}%) × PC2 ({variance_ratio[1]*100:.1f}%)',
-            xaxis_title='PC1', yaxis_title='PC2', height=500
+            xaxis_title='PC1', yaxis_title='PC2', height=500,
+            legend_title_text=None
         )
-        st.plotly_chart(fig_2d, use_container_width=True)
+        st.plotly_chart(fig_2d, width="stretch")
     
     with tab_3d:
         if n_components >= 3:
@@ -286,7 +308,7 @@ def pca_analysis(df):
                 scene=dict(xaxis_title='PC1', yaxis_title='PC2', zaxis_title='PC3'),
                 height=550
             )
-            st.plotly_chart(fig_3d, use_container_width=True)
+            st.plotly_chart(fig_3d, width="stretch")
         else:
             st.info("需要选择≥3个主成分才能显示3D图")
     
@@ -310,14 +332,14 @@ def pca_analysis(df):
                           line=dict(dash='dash', color='gray'))
         
         fig_load.update_layout(
-            title='变量载荷图 (Loading Plot)',
+            title='变量载荷图',
             xaxis_title=f'PC1 ({variance_ratio[0]*100:.1f}%)',
             yaxis_title=f'PC2 ({variance_ratio[1]*100:.1f}%)',
-            height=500, width=600
+            height=500, width=600, legend_title_text=None
         )
         fig_load.update_xaxes(range=[-max_load, max_load])
         fig_load.update_yaxes(range=[-max_load, max_load])
-        st.plotly_chart(fig_load, use_container_width=True)
+        st.plotly_chart(fig_load, width="stretch")
         
         # 载荷表
         loadings_df = pd.DataFrame(
@@ -334,12 +356,34 @@ def pca_analysis(df):
     
     if st.button("下载得分矩阵"):
         csv = score_export.to_csv(index=True).encode('utf-8')
-        st.download_button("保存CSV", data=csv, file_name="pca_scores.csv", mime="text/csv")
+        if can_download():
+            st.download_button("保存CSV", data=csv, file_name="pca_scores.csv", mime="text/csv")
+        else:
+            st.warning("分析次数已用完，充值后可下载结果。请前往侧边栏充值中心。")
 
 
 # ========== K-Means 聚类 ==========
 def kmeans_analysis(df):
     st.markdown("### 🔵 K-Means 聚类分析")
+    
+    st.info("""
+    **K-Means 聚类**将样本划分为 K 个群组，使组内尽可能相似、组间尽可能不同。
+    
+    **适用场景**：已知要分几类（如品种分为3个等级、样本分成不同群体）。
+    
+    **数据要求**：≥2个数值变量，建议标准化。
+    
+    **参数选择**：
+    - **K值**：可通过"肘部法则"确定，拐点处为较优K值
+    - **标准化**：变量量纲不同时必须勾选
+    
+    **评估指标**：
+    - **轮廓系数**：-1~1，越接近1越好
+    - **CH指数**：越大越好（组间分离度）
+    - **DB指数**：越小越好（组内紧凑度）
+    
+    **输出**：聚类评估、各簇统计、散点图/雷达图、肘部法则图。
+    """)
     
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     
@@ -390,7 +434,7 @@ def kmeans_analysis(df):
     
     with tab_stats:
         st.markdown("##### 各聚类中心的特征均值")
-        st.dataframe(cluster_summary.round(3), use_container_width=True)
+        st.dataframe(cluster_summary.round(3), width="stretch")
         
         # 各组原始数据预览
         st.markdown("##### 各组样本详情")
@@ -430,9 +474,9 @@ def kmeans_analysis(df):
                 marker_color='black', marker_line_width=3
             ))
             
-            fig_km.update_layout(title='K-Means 聚类结果 (PCA降维)', 
-                               height=500, showlegend=True)
-            st.plotly_chart(fig_km, use_container_width=True)
+            fig_km.update_layout(title='K-Means 聚类结果（PCA降维）',
+                               height=500, showlegend=True, legend_title_text=None)
+            st.plotly_chart(fig_km, width="stretch")
         
         else:
             # 雷达图
@@ -452,7 +496,7 @@ def kmeans_analysis(df):
                 polar=dict(radialaxis_visible=True, type='linear'),
                 title='各聚类中心雷达图', height=450
             )
-            st.plotly_chart(fig_radar, use_container_width=True)
+            st.plotly_chart(fig_radar, width="stretch")
     
     with tab_elbow:
         # 肘部法则
@@ -473,20 +517,39 @@ def kmeans_analysis(df):
         fig_elbow.add_trace(go.Scatter(x=list(K_range), y=sil_scores,
                                        mode='lines+markers', name='轮廓系数',
                                        line=dict(color='red'), yaxis='y2'))
-        fig_elbow.update_layout(title='肘部法则 & 轮廓系数', xaxis_text='K值',
-                               yaxis_title='SSE', yaxis2_title='Silhouette', height=400)
-        st.plotly_chart(fig_elbow, use_container_width=True)
+        fig_elbow.update_layout(title='肘部法则 & 轮廓系数', xaxis_title='K值',
+                               yaxis_title='组内平方和(SSE)', yaxis2_title='轮廓系数', height=400)
+        st.plotly_chart(fig_elbow, width="stretch")
 
 
 # ========== 层次聚类 ==========
 def hierarchical_analysis(df):
     st.markdown("### 🌳 层次聚类分析")
     
+    st.info("""
+    **层次聚类**通过逐步合并（或分裂）构建样本间的层次关系树。
+    
+    **适用场景**：不确定分几类，想探索数据的层次结构（如品种亲缘关系）。
+    
+    **数据要求**：≥2个数值变量，会自动标准化。
+    
+    **参数说明**：
+    - **链接方法**：
+      - Ward（离差平方和）：最常用，倾向产生大小相近的簇
+      - Complete（最长距离）：产生紧凑的簇
+      - Average（平均距离）：折中方案
+    - **距离度量**：欧氏距离（最常用）、相关系数距离、曼哈顿距离
+    
+    **输出**：谱系图（树状图）、截取指定聚类数后的各组描述统计。
+    """)
+    
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     selected_vars = st.multiselect("选择变量", numeric_cols, default=numeric_cols[:4])
     
-    method = st.selectbox("链接方法", ["ward", "complete", "average", "single"])
-    metric = st.selectbox("距离度量", ["euclidean", "correlation", "cityblock"])
+    method = st.selectbox("链接方法", ["ward", "complete", "average", "single"],
+                          format_func=lambda x: {"ward":"离差平方和","complete":"最长距离","average":"平均距离","single":"最短距离"}[x])
+    metric = st.selectbox("距离度量", ["euclidean", "correlation", "cityblock"],
+                          format_func=lambda x: {"euclidean":"欧氏距离","correlation":"相关系数","cityblock":"曼哈顿距离"}[x])
     
     if not selected_vars:
         return
@@ -524,7 +587,7 @@ def hierarchical_analysis(df):
     plt.close()
     buf.seek(0)
     
-    st.image(buf, use_container_width=True)
+    st.image(buf, width="stretch")
     
     # 截取指定数量的簇
     cut_n = st.slider("截取聚类数", min_value=2, max_value=10, value=3)
@@ -541,6 +604,23 @@ def hierarchical_analysis(df):
 # ========== 相关性分析 ==========
 def correlation_analysis(df):
     st.markdown("### 🔗 相关性分析")
+    
+    st.info("""
+    **相关性分析**用于量化变量之间的线性（或单调）关系强度和方向。
+    
+    **数据要求**：≥2个数值变量。
+    
+    **三种相关系数**：
+    - **Pearson**：度量线性相关（最常用，要求数值型、近似正态）
+    - **Spearman**：度量单调相关（基于秩次，不要求数值型/正态）
+    - **Kendall**：度量有序相关（小样本、有大量相同秩次时更稳健）
+    
+    **结果解读**：
+    - r > 0：正相关；r < 0：负相关
+    - |r| < 0.3：弱相关；0.3~0.7：中等；> 0.7：强相关
+    
+    **输出**：热力图、相关系数表、显著性检验（标注 * / ** / ***）。
+    """)
     
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     selected_vars = st.multiselect("选择变量", numeric_cols, default=numeric_cols)
@@ -601,11 +681,11 @@ def correlation_analysis(df):
         ))
         fig_corr.update(layout_annotations=annotations)  # type: ignore
         fig_corr.update_layout(title=f'{corr_method.capitalize()} 相关系数矩阵', height=500)
-        st.plotly_chart(fig_corr, use_container_width=True)
+        st.plotly_chart(fig_corr, width="stretch")
     
     with tab_table:
         display_corr = corr_matrix.round(4)
-        st.dataframe(display_corr, use_container_width=True)
+        st.dataframe(display_corr, width="stretch")
     
     with tab_sig:
         sig_display = pval_matrix.copy()
@@ -616,7 +696,7 @@ def correlation_analysis(df):
             else: return f"{p:.4f}"
         
         sig_display = sig_display.applymap(format_p)
-        st.dataframe(sig_display, use_container_width=True)
+        st.dataframe(sig_display, width="stretch")
         st.caption("*p<0.05, **p<0.01, ***p<0.001")
 
 
@@ -640,7 +720,7 @@ def calculate_kmo(data_array):
             total_sum = anti_sum + np.sum(R**2) - len(R)
             kmo_val = anti_sum / total_sum if total_sum > 0 else 0
             return round(kmo_val, 3)
-        except:
+        except Exception:
             return "需安装factor_analyzer"
 
 
