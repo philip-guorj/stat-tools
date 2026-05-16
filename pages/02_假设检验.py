@@ -208,7 +208,7 @@ def one_sample_t_test(df, numeric_cols):
                   annotation_text=f"假设均值={hypothesized_mean}")
     fig.update_layout(title='单样本t检验可视化', xaxis_title='值', height=400,
                       legend_title_text=None)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def independent_t_test(df, numeric_cols, categorical_cols):
@@ -254,7 +254,7 @@ def independent_t_test(df, numeric_cols, categorical_cols):
     
     fig = px.box(df, x=group_col, y=var_col, color=group_col,
                  title=f'{var_col} 按{group_col}分组的分布')
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def paired_t_test(df, numeric_cols):
@@ -289,7 +289,7 @@ def paired_t_test(df, numeric_cols):
                               mode='lines+markers', name='差值'))
     fig.add_hline(y=0, line_dash="dash", line_color="red")
     fig.update_layout(title='配对差异图', xaxis_title='样本序号', yaxis_title='差值', height=350)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def chi_square_test(df, categorical_cols):
@@ -362,7 +362,7 @@ def normality_test(df, numeric_cols):
     
     result_df = pd.DataFrame(results).set_index('变量')
     st.dataframe(result_df.style.apply(lambda x: ['background-color:#d4edda' if v=='正态' else 'background-color:#f8d7da' 
-                                                  for v in x], subset=['结论']), width="stretch")
+                                                  for v in x], subset=['结论']), use_container_width=True)
 
 
 def levene_test(df, numeric_cols, categorical_cols):
@@ -447,7 +447,7 @@ def oneway_anova(df, numeric_cols, categorical_cols):
     
     fig = px.box(df, x=group_col, y=var_col, color=group_col,
                  title=f'{var_col} 的组间差异')
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def nonparametric_test(df, numeric_cols, categorical_cols):

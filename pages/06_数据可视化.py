@@ -155,7 +155,7 @@ def show_viz_gallery(df, num_cols, cat_cols):
             title='数值变量关系预览'
         )
         fig_preview.update_layout(height=500)
-        st.plotly_chart(fig_preview, width="stretch")
+        st.plotly_chart(fig_preview, use_container_width=True)
 
 
 # ========== 图表实现 ==========
@@ -196,7 +196,7 @@ def line_chart(df, num_cols, cat_cols):
         fig.update_traces(mode='lines+markers', marker_size=4)
     
     update_fig_layout(fig, f'折线图 - {y_col}')
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def bar_chart(df, num_cols, cat_cols):
@@ -257,7 +257,7 @@ def bar_chart(df, num_cols, cat_cols):
         pass
     
     update_fig_layout(fig, '柱状图', height=450)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def box_plot(df, num_cols, cat_cols):
@@ -305,7 +305,7 @@ def box_plot(df, num_cols, cat_cols):
         fig.update_xaxes(categoryorder='array', categoryarray=cat_order)
 
     update_fig_layout(fig, f'箱线图 - {y_col}')
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def histogram(df, num_cols, cat_cols):
@@ -331,7 +331,7 @@ def histogram(df, num_cols, cat_cols):
                           marginal="box" if st.checkbox("边距图") else None,
                           title=f'{var_col} 分布')
         update_fig_layout(fig, f'{var_col} 分布', height=400)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
     
     with tab_dist:
         # KDE核密度估计
@@ -348,7 +348,7 @@ def histogram(df, num_cols, cat_cols):
                        name='归一化直方图',
                        marker_color='rgba(55,128,191,0.3)')
         fig_kde.update_layout(title=f'{var_col} 密度分布', height=400)
-        st.plotly_chart(fig_kde, width="stretch")
+        st.plotly_chart(fig_kde, use_container_width=True)
     
     with tab_cum:
         sorted_data = np.sort(data)
@@ -362,7 +362,7 @@ def histogram(df, num_cols, cat_cols):
             xaxis=dict(title=var_col),
             yaxis=dict(title='累积概率')
         )
-        st.plotly_chart(fig_cdf, width="stretch")
+        st.plotly_chart(fig_cdf, use_container_width=True)
 
 
 def scatter_plot(df, num_cols, cat_cols):
@@ -409,7 +409,7 @@ def scatter_plot(df, num_cols, cat_cols):
             pass
     
     update_fig_layout(fig, f'{y_col} vs {x_col}', height=500)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     
     # 相关系数
     corr = df[x_col].corr(df[y_col])
@@ -466,7 +466,7 @@ def heatmap(df, num_cols, cat_cols):
                         title=f'{val_col} 透视表 ({agg_func})')
     
     fig.update_layout(height=500)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def pie_chart(df, cat_cols, num_cols):
@@ -505,7 +505,7 @@ def pie_chart(df, cat_cols, num_cols):
     
     fig.update_layout(title=f'{category_col} 分布{" ("+values_col+")" if values_col!="计数" else ""}',
                      height=500)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def violin_plot(df, num_cols, cat_cols):
@@ -544,7 +544,7 @@ def violin_plot(df, num_cols, cat_cols):
         fig.update_xaxes(categoryorder='array', categoryarray=cat_order)
     
     update_fig_layout(fig, f'小提琴图 - {y_col}', height=450)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def scatter_matrix(df, num_cols):
@@ -579,7 +579,7 @@ def scatter_matrix(df, num_cols):
                             opacity=0.7,
                             title='散点矩阵')
     fig.update_layout(height=600)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def area_chart(df, num_cols, cat_cols):
@@ -611,7 +611,7 @@ def area_chart(df, num_cols, cat_cols):
                  facet_col=None)
     
     update_fig_layout(fig, '面积图', height=450)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 # ========== 辅助函数 ==========

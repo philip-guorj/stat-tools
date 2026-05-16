@@ -256,7 +256,7 @@ def pca_analysis(df):
         xaxis_title='主成分', yaxis_title='特征值',
         yaxis2_title='累积方差%', height=400
     )
-    st.plotly_chart(fig_scree, width="stretch")
+    st.plotly_chart(fig_scree, use_container_width=True)
     
     # 得分图
     tab_2d, tab_3d, tab_load = st.tabs(["PC1×PC2得分图", "三维得分图", "载荷图"])
@@ -292,7 +292,7 @@ def pca_analysis(df):
             xaxis_title='PC1', yaxis_title='PC2', height=500,
             legend_title_text=None
         )
-        st.plotly_chart(fig_2d, width="stretch")
+        st.plotly_chart(fig_2d, use_container_width=True)
     
     with tab_3d:
         if n_components >= 3:
@@ -308,7 +308,7 @@ def pca_analysis(df):
                 scene=dict(xaxis_title='PC1', yaxis_title='PC2', zaxis_title='PC3'),
                 height=550
             )
-            st.plotly_chart(fig_3d, width="stretch")
+            st.plotly_chart(fig_3d, use_container_width=True)
         else:
             st.info("需要选择≥3个主成分才能显示3D图")
     
@@ -339,7 +339,7 @@ def pca_analysis(df):
         )
         fig_load.update_xaxes(range=[-max_load, max_load])
         fig_load.update_yaxes(range=[-max_load, max_load])
-        st.plotly_chart(fig_load, width="stretch")
+        st.plotly_chart(fig_load, use_container_width=True)
         
         # 载荷表
         loadings_df = pd.DataFrame(
@@ -434,7 +434,7 @@ def kmeans_analysis(df):
     
     with tab_stats:
         st.markdown("##### 各聚类中心的特征均值")
-        st.dataframe(cluster_summary.round(3), width="stretch")
+        st.dataframe(cluster_summary.round(3), use_container_width=True)
         
         # 各组原始数据预览
         st.markdown("##### 各组样本详情")
@@ -476,7 +476,7 @@ def kmeans_analysis(df):
             
             fig_km.update_layout(title='K-Means 聚类结果（PCA降维）',
                                height=500, showlegend=True, legend_title_text=None)
-            st.plotly_chart(fig_km, width="stretch")
+            st.plotly_chart(fig_km, use_container_width=True)
         
         else:
             # 雷达图
@@ -496,7 +496,7 @@ def kmeans_analysis(df):
                 polar=dict(radialaxis_visible=True, type='linear'),
                 title='各聚类中心雷达图', height=450
             )
-            st.plotly_chart(fig_radar, width="stretch")
+            st.plotly_chart(fig_radar, use_container_width=True)
     
     with tab_elbow:
         # 肘部法则
@@ -519,7 +519,7 @@ def kmeans_analysis(df):
                                        line=dict(color='red'), yaxis='y2'))
         fig_elbow.update_layout(title='肘部法则 & 轮廓系数', xaxis_title='K值',
                                yaxis_title='组内平方和(SSE)', yaxis2_title='轮廓系数', height=400)
-        st.plotly_chart(fig_elbow, width="stretch")
+        st.plotly_chart(fig_elbow, use_container_width=True)
 
 
 # ========== 层次聚类 ==========
@@ -587,7 +587,7 @@ def hierarchical_analysis(df):
     plt.close()
     buf.seek(0)
     
-    st.image(buf, width="stretch")
+    st.image(buf, use_container_width=True)
     
     # 截取指定数量的簇
     cut_n = st.slider("截取聚类数", min_value=2, max_value=10, value=3)
@@ -681,11 +681,11 @@ def correlation_analysis(df):
         ))
         fig_corr.update(layout_annotations=annotations)  # type: ignore
         fig_corr.update_layout(title=f'{corr_method.capitalize()} 相关系数矩阵', height=500)
-        st.plotly_chart(fig_corr, width="stretch")
+        st.plotly_chart(fig_corr, use_container_width=True)
     
     with tab_table:
         display_corr = corr_matrix.round(4)
-        st.dataframe(display_corr, width="stretch")
+        st.dataframe(display_corr, use_container_width=True)
     
     with tab_sig:
         sig_display = pval_matrix.copy()
@@ -696,7 +696,7 @@ def correlation_analysis(df):
             else: return f"{p:.4f}"
         
         sig_display = sig_display.applymap(format_p)
-        st.dataframe(sig_display, width="stretch")
+        st.dataframe(sig_display, use_container_width=True)
         st.caption("*p<0.05, **p<0.01, ***p<0.001")
 
 

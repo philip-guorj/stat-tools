@@ -112,10 +112,10 @@ def render_descriptive_stats():
     tab1, tab2, tab3 = st.tabs(["基础统计", "完整统计量", "详细报告"])
     
     with tab1:
-        st.dataframe(desc_df.style.background_gradient(cmap='Blues'), width="stretch")
+        st.dataframe(desc_df.style.background_gradient(cmap='Blues'), use_container_width=True)
     
     with tab2:
-        st.dataframe(extra_df.round(4).style.background_gradient(cmap='Greens'), width="stretch")
+        st.dataframe(extra_df.round(4).style.background_gradient(cmap='Greens'), use_container_width=True)
     
     with tab3:
         for col in selected_cols:
@@ -137,7 +137,7 @@ def render_descriptive_stats():
         col_rename = {'count': '样本数', 'mean': '均值', 'std': '标准差', 'min': '最小值', 'max': '最大值'}
         # 将 MultiIndex 元组列名合并为扁平字符串，如 ('产量', '样本数') → '产量样本数'
         grouped.columns = [f"{col}{col_rename[stat]}" for col, stat in grouped.columns]
-        st.dataframe(grouped.round(4), width="stretch")
+        st.dataframe(grouped.round(4), use_container_width=True)
         
         # 分组箱线图（X轴按Y中位数降序排列）
         st.markdown("#### 分组箱线图")
@@ -154,7 +154,7 @@ def render_descriptive_stats():
         fig_box.update_layout(legend_title_text=None)
         if cat_order:
             fig_box.update_xaxes(categoryorder='array', categoryarray=cat_order)
-        st.plotly_chart(fig_box, width="stretch")
+        st.plotly_chart(fig_box, use_container_width=True)
     
     # 可视化
     st.markdown("---")
@@ -185,12 +185,12 @@ def render_descriptive_stats():
                 fig = px.histogram(df, x=col, nbins=30, marginal="box",
                                    title=f'{col} 分布直方图')
                 fig.update_layout(height=400)
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, use_container_width=True)
             elif chart_type == "箱线图":
                 fig = px.box(df, y=col, title=f'{col} 箱线图',
                             points="outliers")
                 fig.update_layout(height=400)
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, use_container_width=True)
         
         with c_qq:
             # QQ图（正态性检验可视化）
@@ -208,7 +208,7 @@ def render_descriptive_stats():
             fig_qq.update_layout(title=f'{col} QQ图 (正态性检验)',
                                 height=400, xaxis_title='理论分位数',
                                 yaxis_title='样本分位数')
-            st.plotly_chart(fig_qq, width="stretch")
+            st.plotly_chart(fig_qq, use_container_width=True)
     
     # 相关性矩阵
     if len(selected_cols) > 1:
@@ -225,7 +225,7 @@ def render_descriptive_stats():
             title='相关系数热力图'
         )
         fig_corr.update_layout(height=500)
-        st.plotly_chart(fig_corr, width="stretch")
+        st.plotly_chart(fig_corr, use_container_width=True)
 
 
 def mode(arr):

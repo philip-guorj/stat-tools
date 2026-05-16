@@ -391,7 +391,7 @@ def _render_cld_letters(tukey_obj, df_tukey, alpha=0.05):
     c1, c2 = st.columns([2, 3])
     with c1:
         st.markdown(f'**显著性字母标识** (不同字母 -> p<{alpha}):')
-        st.dataframe(df_cld.reset_index(drop=True), width="stretch")
+        st.dataframe(df_cld.reset_index(drop=True), use_container_width=True)
 
     with c2:
         fig_cld = go.Figure()
@@ -408,7 +408,7 @@ def _render_cld_letters(tukey_obj, df_tukey, alpha=0.05):
             height=max(300, len(sorted_groups)*40 + 80),
             showlegend=False, yaxis=dict(autorange='reversed')
         )
-        st.plotly_chart(fig_cld, width="stretch", key='met_cld')
+        st.plotly_chart(fig_cld, use_container_width=True, key='met_cld')
 
 
 def _get_alpha():
@@ -576,7 +576,7 @@ def _render_duncan_cld(names_sorted, means_sorted, duncan_results, title="Duncan
                    align='center', font=dict(size=12))
     )])
     fig.update_layout(title=title, height=max(250, n_g * 35 + 60), margin=dict(t=40, b=20))
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 def _display_duncan_result(df_result, mse_val, df_e, names_sorted, means_sorted, reps, title_prefix=""):
@@ -591,7 +591,7 @@ def _display_duncan_result(df_result, mse_val, df_e, names_sorted, means_sorted,
         f"保护水平随比较范围r递增(α_r = 1-(1-0.05)^(r-1))。"
         f" 共 {len(df_result)} 对比较，{sig_count} 对差异显著。"
     )
-    st.dataframe(df_result.reset_index(drop=True), width="stretch")
+    st.dataframe(df_result.reset_index(drop=True), use_container_width=True)
     _render_duncan_cld(names_sorted, means_sorted, df_result, title=f"{title_prefix}Duncan CLD")
 
 
@@ -649,7 +649,7 @@ def _render_met_cld(geno_names_sorted, emmeans_geno, compare_results, method_nam
     col_t, col_b = st.columns([2, 3])
     with col_t:
         st.markdown(f'**显著性字母标识（{method_name}）** — 不同字母表示 p<{alpha} 差异显著:')
-        st.dataframe(df_cld.reset_index(drop=True), width="stretch")
+        st.dataframe(df_cld.reset_index(drop=True), use_container_width=True)
     with col_b:
         fig_m = go.Figure()
         means_v = [emmeans_geno[g] for g in geno_names_sorted]
@@ -665,7 +665,7 @@ def _render_met_cld(geno_names_sorted, emmeans_geno, compare_results, method_nam
             height=max(300, len(geno_names_sorted)*40 + 80),
             showlegend=False, yaxis=dict(autorange='reversed')
         )
-        st.plotly_chart(fig_m, width="stretch", key=f'met_{method_name.lower()}_cld')
+        st.plotly_chart(fig_m, use_container_width=True, key=f'met_{method_name.lower()}_cld')
 
 
 
@@ -913,14 +913,14 @@ def rcbd_anova(df):
         
         fig.update_layout(title=f'{response} 处理均值比较 (RCBD)',
                          xaxis_title=treatment, yaxis_title=response, height=450)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
         
         # 区组效应
         block_means = df.groupby(block)[response].mean().sort_values(ascending=False)
         fig_block = px.bar(x=block_means.index, y=block_means.values,
                           labels={'x': block, 'y': response},
                           title='区组效应')
-        st.plotly_chart(fig_block, width="stretch")
+        st.plotly_chart(fig_block, use_container_width=True)
         
         # ── 三、多重比较 ──
         st.markdown("---")
@@ -1007,7 +1007,7 @@ def latin_square_anova(df):
                         color_continuous_scale='YlGnBu',
                         title=f'{response} 均值分布 ({row_var} × {trt_var})')
         fig.update_layout(height=400)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
         
         # ── 三、处理间多重比较 ──
         st.markdown("---")
@@ -1246,7 +1246,7 @@ def split_plot_anova(df):
         st.markdown("#### 📊 一、方差分析")
         st.markdown("#### 裂区设计方差分析表")
         st.markdown("*注：主处理用 Ea 检验，副处理和 A×B 交互用 Eb 检验*")
-        st.dataframe(df_anova, width="stretch")
+        st.dataframe(df_anova, use_container_width=True)
         
         # CV 计算
         grand_mean = df[response].mean()
@@ -1263,7 +1263,7 @@ def split_plot_anova(df):
                      x=sub_factor, y=response, color=main_factor,
                      markers=True, title='主区×副区交互作用图',
                      labels={sub_factor: '副区因子', response: response, main_factor: '主区因子'})
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
         
         # ── 三、多重比较 ──
         st.markdown("---")
@@ -1354,14 +1354,14 @@ def factorial_anova(df):
                              x=factor_a, y=response, color=factor_b,
                              markers=True, title='因子A×B交互作用',
                              labels={factor_a: '因子A', factor_b: '因子B'})
-                st.plotly_chart(fig, width="stretch")
+                st.plotly_chart(fig, use_container_width=True)
             
             with tab_profile:
                 fig2 = px.line(df.groupby([factor_a, factor_b])[response].mean().reset_index(),
                               x=factor_b, y=response, color=factor_a,
                               markers=True, title='因子B×A剖面图',
                               labels={factor_b: '因子B', factor_a: '因子A'})
-                st.plotly_chart(fig2, width="stretch")
+                st.plotly_chart(fig2, use_container_width=True)
         
         # ── 三、多重比较 ──
         st.markdown("---")
@@ -1391,7 +1391,7 @@ def factorial_anova(df):
                              color_continuous_scale='RdBu_r',
                              title='单元格均值矩阵')
         fig_heat.update_layout(height=350)
-        st.plotly_chart(fig_heat, width="stretch")
+        st.plotly_chart(fig_heat, use_container_width=True)
         
     except Exception as e:
         st.error(f"分析失败: {e}")
@@ -1497,7 +1497,7 @@ def met_analysis(df):
         sp_df = pd.DataFrame(single_point_results)
         sp_df_sorted = sp_df.sort_values('变异系数(CV%)', ascending=False)
 
-        st.dataframe(sp_df_sorted.reset_index(drop=True), width="stretch")
+        st.dataframe(sp_df_sorted.reset_index(drop=True), use_container_width=True)
 
         # 单点CV柱状图
         fig_sp_cv = px.bar(
@@ -1509,7 +1509,7 @@ def met_analysis(df):
             color_continuous_scale='RdYlGn_r'
         )
         fig_sp_cv.update_layout(height=400, showlegend=False)
-        st.plotly_chart(fig_sp_cv, width="stretch", key='met_sp_cv')
+        st.plotly_chart(fig_sp_cv, use_container_width=True, key='met_sp_cv')
 
         # 展开查看每个环境的详细ANOVA表
         with st.expander("📋 查看每个环境的详细方差分析表"):
@@ -1658,7 +1658,7 @@ def met_analysis(df):
                     f"\n\n共 {len(lsd_results)} 对比较，α=0.05显著 {sig_count_05} 对，α=0.01极显著 {sig_count_01} 对。"
                     f" 显著标记：✓ = α=0.05显著，✓✓ = α=0.01极显著。"
                 )
-                st.dataframe(df_lsd.reset_index(drop=True), width="stretch")
+                st.dataframe(df_lsd.reset_index(drop=True), use_container_width=True)
 
             # ── CLD字母标识（基于LSD结果）──
             _render_met_cld(geno_names_sorted, emmeans_geno, lsd_results, alpha=_get_alpha())
@@ -1724,7 +1724,7 @@ def met_analysis(df):
                     f" 共 {len(duncan_results)} 对比较，{sig_count_duncan} 对差异显著。"
                     f" {'(使用近似t值)' if not has_sr else '(使用Studentized Range分布)'}"
                 )
-                st.dataframe(df_duncan.reset_index(drop=True), width="stretch")
+                st.dataframe(df_duncan.reset_index(drop=True), use_container_width=True)
 
             # ── Duncan CLD字母标识 ──
             _render_met_cld(geno_names_sorted, emmeans_geno, duncan_results, method_name='Duncan', alpha=_get_alpha())
@@ -1760,7 +1760,7 @@ def met_analysis(df):
                 color_continuous_scale='Viridis'
             )
             fig_geno_bar.update_layout(height=420, showlegend=False)
-            st.plotly_chart(fig_geno_bar, width="stretch", key='met_geno_bar')
+            st.plotly_chart(fig_geno_bar, use_container_width=True, key='met_geno_bar')
 
         except Exception as e_mp:
             import traceback
@@ -1781,7 +1781,7 @@ def met_analysis(df):
             fig_env = px.bar(x=env_means.index, y=env_means.values,
                            labels={'x': environment, 'y': response},
                            title='各环境平均表现')
-            st.plotly_chart(fig_env, width="stretch", key='met_ge_env')
+            st.plotly_chart(fig_env, use_container_width=True, key='met_ge_env')
 
             env_cv = df.groupby(environment)[response].apply(
                 lambda x: x.std()/x.mean()*100 if x.mean()!=0 else 0)
@@ -1792,14 +1792,14 @@ def met_analysis(df):
             fig_geno = px.bar(x=geno_means.index, y=geno_means.values,
                             labels={'x': genotype, 'y': response},
                             title='基因型平均表现（跨环境）')
-            st.plotly_chart(fig_geno, width="stretch", key='met_ge_geno')
+            st.plotly_chart(fig_geno, use_container_width=True, key='met_ge_geno')
 
             rank_data = df.groupby([environment, genotype])[response].mean().groupby(level=genotype).rank(ascending=False)
             avg_rank = rank_data.groupby(genotype).mean().round(2).sort_values()
             fig_rank = px.bar(x=avg_rank.index, y=avg_rank.values,
                              labels={'x': genotype, 'y': '平均排名'},
                              title='基因型平均排名（越低越稳定）')
-            st.plotly_chart(fig_rank, width="stretch", key='met_ge_rank')
+            st.plotly_chart(fig_rank, use_container_width=True, key='met_ge_rank')
 
         with tab_ge:
             ge_matrix = df.pivot_table(values=response, index=environment, columns=genotype, aggfunc='mean')
@@ -1820,7 +1820,7 @@ def met_analysis(df):
                               color_continuous_midpoint=0,
                               title='G×E 交互效应矩阵')
             fig_ge.update_layout(height=450)
-            st.plotly_chart(fig_ge, width="stretch", key='met_ge_matrix')
+            st.plotly_chart(fig_ge, use_container_width=True, key='met_ge_matrix')
 
         # ========== Tab 5: 品种稳定性分析 ==========
         st.markdown("---")
@@ -1831,7 +1831,7 @@ def met_analysis(df):
         if stability_metrics is not None and len(stability_metrics) > 0:
             stab_df = pd.DataFrame(stability_metrics).round(4)
             stab_df = stab_df.sort_values('总均值', ascending=False)
-            st.dataframe(stab_df.reset_index(drop=True), width="stretch")
+            st.dataframe(stab_df.reset_index(drop=True), use_container_width=True)
 
             stab_col1, stab_col2 = st.columns(2)
             with stab_col1:
@@ -1848,7 +1848,7 @@ def met_analysis(df):
                     xaxis_title=f'{response} 均值', yaxis_title='CV (%)',
                     height=420
                 )
-                st.plotly_chart(fig_ms, width="stretch", key='stab_mean_cv')
+                st.plotly_chart(fig_ms, use_container_width=True, key='stab_mean_cv')
 
             with stab_col2:
                 if '排名范围' in stab_df.columns:
@@ -1866,7 +1866,7 @@ def met_analysis(df):
                         xaxis_title='平均排名', yaxis_title='最大排名',
                         height=420
                     )
-                    st.plotly_chart(fig_rr, width="stretch", key='stab_rank_range')
+                    st.plotly_chart(fig_rr, use_container_width=True, key='stab_rank_range')
         else:
             st.info("稳定性指标计算需要至少2个环境和2个重复")
 
@@ -1886,13 +1886,13 @@ def met_analysis(df):
             - 偏差平方和 s²dᵢ 衡量对线性回归的偏离（越小越好，理想为0）
             """)
 
-            st.dataframe(er_df.round(4).reset_index(drop=True), width="stretch")
+            st.dataframe(er_df.round(4).reset_index(drop=True), use_container_width=True)
 
-            st.plotly_chart(fig_er, width="stretch", key='er_regression')
+            st.plotly_chart(fig_er, use_container_width=True, key='er_regression')
 
             if env_indices_df is not None:
                 with st.expander("查看环境指数详情"):
-                    st.dataframe(env_indices_df.round(4), width="stretch")
+                    st.dataframe(env_indices_df.round(4), use_container_width=True)
         else:
             st.info("Eberhart-Russell分析需要足够的环境数和重复数据")
 
@@ -1933,7 +1933,7 @@ def met_analysis(df):
             yaxis_title=f"PC2 ({variance_explained[1]:.1f}%)",
             height=520, width=750
         )
-        st.plotly_chart(fig_biplot, width="stretch", key='gge_biplot')
+        st.plotly_chart(fig_biplot, use_container_width=True, key='gge_biplot')
 
     except Exception as e:
         st.error(f"分析失败: {e}")
@@ -2199,7 +2199,7 @@ def alpha_lattice_anova(df):
                     x='均值', y=treatment, orientation='h', title=f'{response} 处理均值比较',
                     color='均值', color_continuous_scale='Blues')
         fig.update_layout(height=max(400, len(treatment_means) * 30), yaxis_title=treatment)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
         
         # ── 三、多重比较 ──
         st.markdown("---")
@@ -2312,7 +2312,7 @@ def augmented_anova(df):
         fig = px.box(df, x=treatment, y=response, title=f'{response} 处理分布',
                     color=type_col if type_col else None)
         fig.update_layout(height=400, xaxis_tickangle=-45)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
 
     except Exception as e:
         st.error(f"分析失败: {e}")
@@ -2493,7 +2493,7 @@ def interval_contrast_anova(df):
         if results:
             results_df = pd.DataFrame(results).sort_values('位置')
             st.markdown("#### 分析结果")
-            st.dataframe(results_df.reset_index(drop=True), width="stretch")
+            st.dataframe(results_df.reset_index(drop=True), use_container_width=True)
             
             # 下载按钮
             csv_bytes = results_df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
@@ -2523,7 +2523,7 @@ def interval_contrast_anova(df):
             fig.update_layout(height=max(400, len(chart_df) * 25 + 100), 
                               xaxis_tickangle=-45, showlegend=False,
                               yaxis_range=[y_start, None])
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.warning("未找到有效的分析结果。请检查数据中CK1对照是否按位置排列。")
         
@@ -2629,7 +2629,7 @@ def display_anova_table(anova_table, title):
     display_table = display_table[col_order]
 
     st.markdown(f"#### {title}")
-    st.dataframe(display_table.round(4), width="stretch")
+    st.dataframe(display_table.round(4), use_container_width=True)
 
 
 def plot_significance_groups(tukey_result, treatment_means, response_var):
@@ -2677,7 +2677,7 @@ def plot_significance_groups(tukey_result, treatment_means, response_var):
             showlegend=True,
             height=400
         )
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
         
     except Exception as e:
         st.caption(f"字母分组图生成失败: {e}")

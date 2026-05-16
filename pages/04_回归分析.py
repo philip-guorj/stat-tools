@@ -270,7 +270,7 @@ def simple_linear_regression(df, numeric_cols):
     fig.update_layout(title=f'{y_var} vs {x_var}<br><sup>{eq_str}</sup>',
                      xaxis_title=x_var, yaxis_title=y_var, height=500,
                      legend_title_text=None)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
     
     # 残差诊断图
     residuals = y - y_pred
@@ -285,7 +285,7 @@ def simple_linear_regression(df, numeric_cols):
         fig_resid.add_hline(y=0, line_dash='dash', line_color='red')
         fig_resid.update_layout(title='残差 vs 拟合值', 
                                xaxis_title='拟合值', yaxis_title='残差', height=350)
-        st.plotly_chart(fig_resid, width="stretch")
+        st.plotly_chart(fig_resid, use_container_width=True)
     
     with diag_col2:
         # Q-Q图
@@ -299,7 +299,7 @@ def simple_linear_regression(df, numeric_cols):
         fig_qq.add_trace(go.Scatter(x=qq_x, y=qq_x, mode='lines',
                                     line_dash='dash', name='参考线'))
         fig_qq.update_layout(title='残差Q-Q正态检验', height=350)
-        st.plotly_chart(fig_qq, width="stretch")
+        st.plotly_chart(fig_qq, use_container_width=True)
 
 
 def multiple_regression(df, numeric_cols):
@@ -374,7 +374,7 @@ def multiple_regression(df, numeric_cols):
             coef_df = pd.DataFrame(coef_summary.data[1:], columns=coef_summary.data[0]).set_index('')
         vif_df = vif_data.set_index('变量')
         combined = coef_df.join(vif_df, how='left')
-        st.dataframe(combined.round(4), width="stretch")
+        st.dataframe(combined.round(4), use_container_width=True)
         
         st.caption("*VIF > 10 表示存在多重共线性")  # VIF为通用统计缩写，保留
     
@@ -413,7 +413,7 @@ def multiple_regression(df, numeric_cols):
             fig1.add_trace(go.Scatter(x=fitted, y=residuals, mode='markers', opacity=0.6))
             fig1.add_hline(y=0, line_dash='dash')
             fig1.update_layout(title='残差 vs 拟合值', height=300)
-            st.plotly_chart(fig1, width="stretch")
+            st.plotly_chart(fig1, use_container_width=True)
         
         with d2:
             from scipy.stats import probplot
@@ -424,12 +424,12 @@ def multiple_regression(df, numeric_cols):
                             y=[min(qq_d[0][1]), max(qq_d[0][1])],
                             mode='lines', line_dash='dash')
             fig2.update_layout(title='Q-Q图', height=300)
-            st.plotly_chart(fig2, width="stretch")
+            st.plotly_chart(fig2, use_container_width=True)
     
     # 标准化系数（Beta）
     st.markdown("#### 标准化回归系数 (Beta)")
     beta_df = calculate_standardized_coefficients(model, x_vars)
-    st.dataframe(beta_df.round(4), width="stretch")
+    st.dataframe(beta_df.round(4), use_container_width=True)
 
 
 def polynomial_regression(df, numeric_cols):
@@ -514,7 +514,7 @@ def polynomial_regression(df, numeric_cols):
     fig.update_layout(title=f'{y_var} vs {x_var} - {degree}阶多项式回归 (R²={r_sq:.4f})',
                      xaxis_title=x_var, yaxis_title=y_var, height=500,
                      legend_title_text=None)
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
 
 
@@ -595,7 +595,7 @@ def logistic_regression(df, numeric_cols):
                 lambda p: "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else ""
             )
         })
-        st.dataframe(coef_df.round(4), width="stretch")
+        st.dataframe(coef_df.round(4), use_container_width=True)
         st.caption("OR > 1 表示正相关风险增加，OR < 1 表示负相关风险降低")
     
     with tab_pred:
@@ -613,7 +613,7 @@ def logistic_regression(df, numeric_cols):
             index=[f"实际{unique_y[0]}", f"实际{unique_y[1]}"],
             columns=[f"预测{unique_y[0]}", f"预测{unique_y[1]}"]
         )
-        st.dataframe(cm_df, width="stretch")
+        st.dataframe(cm_df, use_container_width=True)
         
         # 准确率等指标
         tn, fp, fn, tp = cm.ravel()
@@ -649,7 +649,7 @@ def logistic_regression(df, numeric_cols):
                 height=400,
                 xaxis=dict(scaleanchor="y", scaleratio=1)
             )
-            st.plotly_chart(fig_roc, width="stretch")
+            st.plotly_chart(fig_roc, use_container_width=True)
         except Exception:
             pass
 
@@ -713,14 +713,14 @@ def stepwise_regression(df, numeric_cols):
             if results_history:
                 hist_df = pd.DataFrame(results_history)
                 st.markdown("#### 变量筛选过程")
-                st.dataframe(hist_df, width="stretch")
+                st.dataframe(hist_df, use_container_width=True)
             
             # 系数表
             coef_df_final = _get_summary_table(final_model, table_idx=1)
             if isinstance(coef_df_final, pd.DataFrame):
-                st.dataframe(coef_df_final, width="stretch")
+                st.dataframe(coef_df_final, use_container_width=True)
             else:
-                st.dataframe(coef_df_final, width="stretch")
+                st.dataframe(coef_df_final, use_container_width=True)
         else:
             if best_var:
                 st.warning(f"没有变量被选中（最佳候选：{best_var}，p={best_p:.4f} > α={alpha_enter}）。可尝试：\n- 降低进入阈值 α\n- 检查自变量与因变量的线性关系\n- 增加样本量")
@@ -737,7 +737,7 @@ def display_anova_ml_table(table):
     disp.rename(columns={
         'sum_sq': '平方和', 'df': '自由度', 'F': 'F值', 'PR(>F)': 'p值'
     }, inplace=True)
-    st.dataframe(disp, width="stretch")
+    st.dataframe(disp, use_container_width=True)
 
 
 def calculate_standardized_coefficients(model, x_vars):

@@ -386,7 +386,7 @@ def crd_design():
         
         # 布局显示
         st.markdown("#### 📋 随机化排列结果")
-        st.dataframe(df_design[['排列序号', '处理', '重复']], width="stretch")
+        st.dataframe(df_design[['排列序号', '处理', '重复']], use_container_width=True)
         
         # 显示各重复的排列对比
         if check_constraint:
@@ -395,7 +395,7 @@ def crd_design():
         
         # 可视化
         fig = visualize_field_layout(df_design, f"CRD设计 - {len(treatment_list)}处理×{n_reps}重复")
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
         
         # 下载
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
@@ -553,11 +553,11 @@ def lsd_design():
         # 显示拉丁方
         st.markdown("#### 📋 拉丁方排列")
         pivot_df = df_design.pivot(index='行', columns='列', values='处理')
-        st.dataframe(pivot_df, width="stretch")
+        st.dataframe(pivot_df, use_container_width=True)
         
         # 可视化
         fig = visualize_lsd_layout(df_design, n)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
         
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
         if can_download():
@@ -638,7 +638,7 @@ def split_plot_design():
         st.success(f"✅ 已生成 {len(main_list)} 主处理 × {len(sub_list)} 副处理 × {n_reps} 重复 = {len(df_design)} 个小区")
         
         st.markdown("#### 📋 裂区设计排列")
-        st.dataframe(df_design, width="stretch")
+        st.dataframe(df_design, use_container_width=True)
         
         # 显示约束检查结果
         if check_constraint:
@@ -724,7 +724,7 @@ def strip_plot_design():
         st.success(f"✅ 已生成 {len(a_list)} A水平 × {len(b_list)} B水平 × {n_reps} 重复 = {len(df_design)} 个小区")
         
         st.markdown("#### 📋 条区设计排列")
-        st.dataframe(df_design, width="stretch")
+        st.dataframe(df_design, use_container_width=True)
         
         # 显示约束检查结果
         if check_constraint:
@@ -839,7 +839,7 @@ def met_design():
             with st.expander(f"📍 {str(loc)}"):
                 loc_data = df_met[df_met['地点'] == loc]
                 pivot = loc_data.pivot(index='区组/重复', columns='区内位置', values='品种')
-                st.dataframe(pivot, width="stretch")
+                st.dataframe(pivot, use_container_width=True)
         
         # 下载完整方案
         csv = df_met.to_csv(index=False).encode('utf-8-sig')
@@ -1157,7 +1157,7 @@ def show_replicate_constraint_check(df, treatments, n_reps):
     else:
         st.success("✅ 所有位置约束检查通过！同一处理在不同重复间不在同一位置。")
     
-    st.dataframe(pivot_data, width="stretch")
+    st.dataframe(pivot_data, use_container_width=True)
 
 
 def show_block_layout_table(df, treatments, n_blocks):
@@ -1178,7 +1178,7 @@ def show_block_layout_table(df, treatments, n_blocks):
     # 应用样式
     styled_df = pivot_data.style.map(color_cells)
     
-    st.dataframe(styled_df, width="stretch")
+    st.dataframe(styled_df, use_container_width=True)
 
 
 def show_block_constraint_check(df, treatments, n_blocks):
@@ -1200,7 +1200,7 @@ def show_block_constraint_check(df, treatments, n_blocks):
     else:
         st.success("✅ 所有位置约束检查通过！同一处理在不同区组间不在同一位置。")
     
-    st.dataframe(pivot_data, width="stretch")
+    st.dataframe(pivot_data, use_container_width=True)
 
 
 def show_split_plot_constraint_check(df, main_list, n_reps):
@@ -1222,7 +1222,7 @@ def show_split_plot_constraint_check(df, main_list, n_reps):
     else:
         st.success("✅ 主处理位置约束检查通过！同一主处理在不同重复间不在同一位置。")
     
-    st.dataframe(pivot_data, width="stretch")
+    st.dataframe(pivot_data, use_container_width=True)
 
 
 def show_strip_plot_constraint_check(df, a_list, b_list, n_reps):
@@ -1245,7 +1245,7 @@ def show_strip_plot_constraint_check(df, a_list, b_list, n_reps):
             st.warning("⚠️ 冲突：\n" + "\n".join(conflict_a))
         else:
             st.success("✅ 通过")
-        st.dataframe(pivot_a, width="stretch")
+        st.dataframe(pivot_a, use_container_width=True)
     
     with col2:
         st.markdown("**因素B位置检查：**")
@@ -1263,7 +1263,7 @@ def show_strip_plot_constraint_check(df, a_list, b_list, n_reps):
             st.warning("⚠️ 冲突：\n" + "\n".join(conflict_b))
         else:
             st.success("✅ 通过")
-        st.dataframe(pivot_b, width="stretch")
+        st.dataframe(pivot_b, use_container_width=True)
 
 
 # ========== 可视化函数 ==========
@@ -1516,7 +1516,7 @@ def alpha_lattice_design():
         
         # 可视化
         fig = visualize_alpha_lattice(df_design, treatment_list, s, k)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
         
         # 下载
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
@@ -1609,7 +1609,7 @@ def show_alpha_lattice_layout(df, treatments, s, k, n_reps):
         with st.expander(f"📦 区组 {rep}"):
             # 创建透视表
             pivot = rep_data.pivot(index='不完全区组', columns='区内位置', values='处理')
-            st.dataframe(pivot, width="stretch")
+            st.dataframe(pivot, use_container_width=True)
             
             # 显示不完全区组信息
             st.markdown("**不完全区组详情：**")
@@ -1734,7 +1734,7 @@ def lattice_design():
         
         # 可视化
         fig = visualize_lattice_design(df_design, treatment_list, k)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
         
         # 下载
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
@@ -1801,7 +1801,7 @@ def show_lattice_layout(df, k, n_reps):
         with st.expander(f"📦 重复 {rep}"):
             rep_data = df[df['重复'] == f'重复{rep}']
             pivot = rep_data.pivot(index='行', columns='列', values='处理')
-            st.dataframe(pivot, width="stretch")
+            st.dataframe(pivot, use_container_width=True)
 
 
 def visualize_lattice_design(df, treatments, k):
@@ -1963,7 +1963,7 @@ def augmented_design():
             
             # 可视化
             fig = visualize_diagonal_check_design(df_design, check_list, n_rows, n_cols)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
             
             # 下载
             csv = df_design.to_csv(index=False).encode('utf-8-sig')
@@ -1990,7 +1990,7 @@ def augmented_design():
             
             # 可视化
             fig = visualize_augmented_design(df_design, check_list, test_list)
-            st.plotly_chart(fig, width="stretch")
+            st.plotly_chart(fig, use_container_width=True)
             
             # 下载
             csv = df_design.to_csv(index=False).encode('utf-8-sig')
@@ -2098,7 +2098,7 @@ def show_augmented_layout(df, checks, tests, n_blocks):
             # 按区内位置顺序显示所有处理
             st.markdown("**区内排列顺序：**")
             display_df = block_data[['区内位置', '处理', '类型']].copy()
-            st.dataframe(display_df, width="stretch")
+            st.dataframe(display_df, use_container_width=True)
 
 
 def visualize_augmented_design(df, checks, tests):
@@ -2241,7 +2241,7 @@ def _diagonal_basic_design():
         
         # 可视化
         fig = visualize_diagonal_design(df_design, treatment_list, n_rows, n_cols)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
         
         # 下载
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
@@ -2363,7 +2363,7 @@ def _diagonal_check_design():
         
         # 可视化
         fig = visualize_diagonal_check_design(df_design, check_list, n_rows, n_cols)
-        st.plotly_chart(fig, width="stretch")
+        st.plotly_chart(fig, use_container_width=True)
         
         # 下载
         csv = df_design.to_csv(index=False).encode('utf-8-sig')
@@ -2700,7 +2700,7 @@ def generate_diagonal_check_design(checks, tests, n_checks, n_reps, n_rows, n_co
 def show_diagonal_layout(df, n_rows, n_cols):
     """显示对角线设计布局"""
     pivot = df.pivot(index='行', columns='列', values='处理')
-    st.dataframe(pivot, width="stretch")
+    st.dataframe(pivot, use_container_width=True)
     
     # 显示对角线信息
     st.markdown("**设计说明：**")
@@ -2718,7 +2718,7 @@ def show_diagonal_check_layout(df, n_rows, n_cols):
     )
     pivot = df_disp.pivot(index='行', columns='列', values='显示')
     st.markdown("**处理矩阵（#后数字为入位顺序）：**")
-    st.dataframe(pivot, width="stretch")
+    st.dataframe(pivot, use_container_width=True)
     
     # 统计信息
     check_count = len(df[df['类型'] == '对照'])
