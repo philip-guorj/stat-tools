@@ -368,7 +368,7 @@ def crd_design():
     
     pn_cfg = plot_number_settings(key_prefix="crd")
     
-    if st.button("生成设计方案", type="primary"):
+    if st.button("生成设计方案"):
         # 基于时钟生成随机种子
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
@@ -445,7 +445,7 @@ def rcbd_design():
     
     pn_cfg = plot_number_settings(key_prefix="rcbd")
     
-    if st.button("生成设计方案", type="primary"):
+    if st.button("生成设计方案"):
         # 基于时钟生成随机种子
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
@@ -518,7 +518,7 @@ def lsd_design():
     
     pn_cfg = plot_number_settings(key_prefix="lsd")
     
-    if st.button("生成设计方案", type="primary"):
+    if st.button("生成设计方案"):
         # 基于时钟生成随机种子
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
@@ -617,7 +617,7 @@ def split_plot_design():
     
     pn_cfg = plot_number_settings(key_prefix="split")
     
-    if st.button("生成设计方案", type="primary"):
+    if st.button("生成设计方案"):
         # 基于时钟生成随机种子
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
@@ -703,7 +703,7 @@ def strip_plot_design():
     
     pn_cfg = plot_number_settings(key_prefix="strip")
     
-    if st.button("生成设计方案", type="primary"):
+    if st.button("生成设计方案"):
         # 基于时钟生成随机种子
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
@@ -792,7 +792,7 @@ def met_design():
     
     pn_cfg = plot_number_settings(has_environment=True, key_prefix="met")
     
-    if st.button("生成MET设计方案", type="primary"):
+    if st.button("生成MET设计方案"):
         # 基于时钟生成随机种子
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
@@ -1490,7 +1490,7 @@ def alpha_lattice_design():
     
     pn_cfg = plot_number_settings(key_prefix="alpha")
     
-    if st.button("生成Alpha设计方案", type="primary"):
+    if st.button("生成Alpha设计方案"):
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
         np.random.seed(seed)
@@ -1714,7 +1714,7 @@ def lattice_design():
     
     pn_cfg = plot_number_settings(key_prefix="lattice")
     
-    if st.button("生成Lattice设计方案", type="primary"):
+    if st.button("生成Lattice设计方案"):
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
         np.random.seed(seed)
@@ -1930,7 +1930,7 @@ def augmented_design():
     
     pn_cfg = plot_number_settings(key_prefix="aug")
     
-    if st.button("生成增广设计方案", type="primary"):
+    if st.button("生成增广设计方案"):
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
         
@@ -2222,7 +2222,7 @@ def _diagonal_basic_design():
     
     pn_cfg = plot_number_settings(key_prefix="diag")
     
-    if st.button("生成对角线设计方案", type="primary"):
+    if st.button("生成对角线设计方案"):
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
         np.random.seed(seed)
@@ -2326,7 +2326,7 @@ def _diagonal_check_design():
     
     pn_cfg_diag = plot_number_settings(key_prefix="diagck")
     
-    if st.button("生成对角线设计方案", type="primary"):
+    if st.button("生成对角线设计方案"):
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
         
@@ -2990,7 +2990,7 @@ def interval_test_design():
     
     pn_cfg = plot_number_settings(has_environment=len(location_list) > 0, key_prefix="interval")
     
-    if st.button("生成间比法设计方案", type="primary"):
+    if st.button("生成间比法设计方案"):
         # 收集启用的对照配置：(品种名, 起始位置, 间隔)
         ck_configs = []
         if use_ck1:
@@ -3255,7 +3255,7 @@ def contrast_design():
     
     pn_cfg = plot_number_settings(has_environment=len(location_list) > 0, key_prefix="contrast")
     
-    if st.button("生成对比法设计方案", type="primary"):
+    if st.button("生成对比法设计方案"):
         if use_random_seed:
             seed = int(pd.Timestamp.now().timestamp()) % 10000
         
