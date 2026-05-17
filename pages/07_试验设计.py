@@ -43,8 +43,11 @@ def create_text_input_with_file_import(
     text_key = f"text_{base_key}"
     file_key = f"file_{base_key}"
     
-    # 初始化存储
-    if text_key not in st.session_state:
+    # 初始化存储 — 文件导入的延迟更新在 widget 之前应用
+    pending_key = f"{text_key}_pending"
+    if pending_key in st.session_state:
+        st.session_state[text_key] = st.session_state.pop(pending_key)
+    elif text_key not in st.session_state:
         st.session_state[text_key] = default_value
     
     _type = label.replace("（每行一个）", "").strip()
@@ -118,10 +121,11 @@ def create_text_input_with_file_import(
             lines = [line.strip() for line in content.split('\n') if line.strip()]
             final_content = '\n'.join(lines)
             
-            # 直接更新 session_state
-            st.session_state[text_key] = final_content
+            # 暂存更新到 pending key，rerun 后在 widget 之前应用
+            st.session_state[pending_key] = final_content
             
             st.success(f"✅ 成功导入 {len(lines)} 条数据")
+            st.rerun()
             
         except Exception as e:
             st.error(f"导入失败：{str(e)}")
