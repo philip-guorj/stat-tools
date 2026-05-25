@@ -8,6 +8,13 @@ StatTools - 区试报告分析模块（SSR Module）
 """
 
 import warnings
+# ssr_analysis.py 已被 trial_report_analysis.py 替代，标记为废弃
+warnings.warn(
+    "modules/ssr_analysis.py 已废弃，请使用 modules/trial_report_analysis.py。"
+    "此文件将在 v2.0 中移除。",
+    DeprecationWarning,
+    stacklevel=2
+)
 warnings.filterwarnings('ignore')
 
 import numpy as np
@@ -144,8 +151,8 @@ class SSRMultipleComparison:
                     means_sorted=means_sorted, names_sorted=names_sorted, reps=reps)
 
     @staticmethod
-    def tukey_test(data, groups, alpha=0.05):
-        """Tukey HSD 包装 statsmodels"""
+    def tukey_test(data, groups, alpha=0.05, **kwargs):
+        """Tukey HSD 包装 statsmodels（忽略 mse_val/df_e，由 statsmodels 内部计算）"""
         sm, ols_fn, anova_lm_fn, pairwise_tukeyhsd = _get_statsmodels()
         tukey_obj = pairwise_tukeyhsd(endog=np.asarray(data), groups=np.asarray(groups), alpha=alpha)
         df_pairs = None
@@ -174,7 +181,9 @@ class SSRMultipleComparison:
             df_pairs = pd.DataFrame()
         groups_unique = sorted(set(groups), key=lambda g: -np.mean(data[np.array(groups) == g]))
         means = {g: float(np.mean(data[np.array(groups) == g])) for g in groups_unique}
-        return dict(pairs=df_pairs, groups_unique=groups_unique, means=means, tukey_obj=tukey_obj)
+        return dict(pairs=df_pairs, names_sorted=groups_unique,
+                    means_sorted=np.array([means[g] for g in groups_unique]),
+                    mse=np.nan, df_e=0, groups_unique=groups_unique, means=means, tukey_obj=tukey_obj)
 
     @staticmethod
     def lsd_test(response_data, group_data, mse_val=None, df_e=None, alpha=0.05):
@@ -688,17 +697,26 @@ def rename_anova_index(at):
 def format_anova_table(at):
     """格式化 ANOVA 表为可读样式"""
     at = rename_anova_index(at)
-    # 根据列数动态命名：statsmodels 可能返回 3~5 列
-    col_map = {3: ['自由度(DF)', '平方和(SS)', '均方(MS)'],
-               4: ['自由度(DF)', '平方和(SS)', '均方(MS)', 'F值'],
-               5: ['自由度(DF)', '平方和(SS)', '均方(MS)', 'F值', 'P值']}
-    n_cols = len(at.columns)
-    if n_cols in col_map:
-        at.columns = col_map[n_cols]
-    # 兼容旧版：按位置重命名
+    # 先按列名重命名（statsmodels typ=1: df,sum_sq,mean_sq,F,PR(>F); typ=2/3: sum_sq,df,F,PR(>F)）
     col_renames = {'df': '自由度(DF)', 'sum_sq': '平方和(SS)', 'mean_sq': '均方(MS)',
                    'F': 'F值', 'PR(>F)': 'P值'}
-    at.rename(columns={c: col_renames.get(c.lower(), c) for c in at.columns if c.lower() in col_renames}, inplace=True)
+    rename_cols = {}
+    for c in at.columns:
+        cl = c.lower().replace(' ', '_')
+        if cl in col_renames:
+            rename_cols[c] = col_renames[cl]
+    if rename_cols:
+        at.rename(columns=rename_cols, inplace=True)
+    # 若列名仍是英文（typ=2 无 mean_sq），按位置补齐中文名
+    n_cols = len(at.columns)
+    pos_map = {0: '自由度(DF)', 1: '平方和(SS)', 2: '均方(MS)', 3: 'F值', 4: 'P值'}
+    new_cols = []
+    for i, c in enumerate(at.columns):
+        if c in col_renames.values():
+            new_cols.append(c)
+        else:
+            new_cols.append(pos_map.get(i, c))
+    at.columns = new_cols
     if 'P值' in at.columns:
         at['P值'] = at['P值'].apply(lambda x: f"{x:.6f}" if pd.notna(x) else '-')
         at['显著'] = at['P值'].apply(
